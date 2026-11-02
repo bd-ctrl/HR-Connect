@@ -16,7 +16,6 @@ const person=id=>people.find(p=>p.id===id),fmt=v=>v===null?'—':Number(v).toFix
 function seed(){
  let seq=0;const records=[];
  function add(round,target,values){values.forEach((scores,j)=>records.push({id:'EV-'+String(++seq).padStart(3,'0'),round,target,rater:'anon-'+j,status:'submitted',scores,reasons:scores.map((s,i)=>s<=3?['ส่งมอบงานช้ากว่าเวลาที่ตกลง โดยไม่ได้แจ้งล่วงหน้า','ข้อมูลส่งต่อบางรายการไม่ครบ จึงต้องตรวจแก้อีกครั้ง','ระหว่างประสานงานมีถ้อยคำห้วน ทำให้ทีมไม่แน่ใจว่าจะดำเนินการต่ออย่างไร'][i]:''),context:'',decisions:scores.map(s=>s>=4?'auto':round===ROUND?'pending':'approved'),created:'2026-10-25T09:00:00+07:00'}))}
- add(ROUND,'me',[[4,5,4],[5,4,5],[4,4,4],[3,5,4]]);
  add(ROUND,'non',[[3,4,2],[4,3,4],[4,4,4]]);
  add(ROUND,'win',[[4,5,4],[5,4,5],[4,4,5],[4,5,4]]);
  add(ROUND,'mind',[[5,5,4],[4,5,5],[5,4,5],[5,5,4]]);
@@ -30,7 +29,15 @@ function seed(){
  }
  return {schema:2,round:'open',records,drafts:{},history:[],notWorked:[],decisionsAudit:[],reviewDays:3,closedAt:null,discarded:0,actions:[{id:'a1',title:'ทบทวนขั้นตอนส่งข้อมูลสต็อก',owner:'ทีม OPL',due:'2026-11-05',status:'กำลังดำเนินการ',outcome:''}]};
 }
-let db;try{const saved=JSON.parse(localStorage.getItem(KEY));db=saved?.schema===2?saved:seed()}catch{db=seed()}
+let db;
+try{
+ const saved=JSON.parse(localStorage.getItem(KEY));
+ if(saved?.schema===2){
+  const seededMeIds=new Set(['EV-001','EV-002','EV-003','EV-004']);
+  saved.records=(saved.records||[]).filter(r=>!(r.target==='me'&&seededMeIds.has(r.id)&&r.created==='2026-10-25T09:00:00+07:00'&&String(r.rater||'').startsWith('anon-')));
+  db=saved;
+ }else db=seed();
+}catch{db=seed()}
 let page='home',role='employee',form=null,stage='edit',errors=[],tab='history',historyRound='all',analyticsRound='2026-09',drill=null,queueFilter='pending',formDept='',pickerContext='',storageOK=true,modalReturn=null,rocketShown=false;
 function save(){try{localStorage.setItem(KEY,JSON.stringify(db));return true}catch{storageOK=false;toast('บันทึกไม่สำเร็จ กรุณาตรวจสอบพื้นที่จัดเก็บ');return false}}
 function toast(t){$('#toast').textContent=t;$('#toast').classList.add('toast-visible');setTimeout(()=>$('#toast').classList.remove('toast-visible'),3200)}
