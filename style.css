@@ -81,3 +81,31 @@
 .history-empty-mark{width:58px;height:58px;margin:0 auto 10px;border-radius:20px;display:grid;place-items:center;background:#f3e8f7;color:#a66f9e;font-size:28px}
 .history-summary-empty h2{margin-bottom:6px;color:#65518e}
 @media(max-width:640px){.history-summary-heading{align-items:flex-start}.history-summary-total{flex-basis:72px;width:72px;height:72px;border-radius:22px}.history-summary-total strong{font-size:27px}.history-summary-stats{gap:8px}.history-summary-stats>div{padding:11px}.history-chart{height:170px;padding-left:8px;padding-right:8px;gap:6px}.history-bar-track{height:100px;width:min(34px,75%)}.history-bar-label{font-size:10px}}
+
+/* Make the employee's average score the primary focal point on the home page. */
+.employee-home-layout{display:grid;grid-template-columns:1fr;gap:20px}
+.employee-home-support{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:20px;align-items:stretch}
+.score-home-card-featured{padding:32px 36px;background:linear-gradient(120deg,#fffdf9 0%,#f8f0fb 55%,#f0f8f5 100%);border-color:#ffffff;box-shadow:0 12px 36px #65518e12}
+.score-home-card-featured>.row{align-items:center}
+.score-home-card-featured>.row .mascot-aura{width:96px;height:96px;flex:0 0 96px}
+.score-home-card-featured h2{font-size:22px;margin:0}
+.score-home-card-featured .eyebrow{margin:0 0 6px}
+.score-home-card-featured .score-home-value{font-size:clamp(88px,11vw,132px);line-height:.98;margin:14px 0 4px;letter-spacing:-5px}
+.score-home-card-featured .score-home-value span{font-size:27px;letter-spacing:0}
+.score-home-card-featured>.muted{font-size:14px;margin-top:6px}
+.score-home-card-featured .result-bars{max-width:760px;margin-top:24px}
+.score-home-card-featured .score-pending{min-height:112px;display:flex;flex-direction:column;justify-content:center;padding:22px 24px;margin-top:22px;background:#f5eff9}
+.score-home-card-featured .score-pending strong{font-size:27px;line-height:1.35}
+.score-home-card-featured .score-pending p{font-size:14px}
+.employee-home-support>.card{height:100%}
+@media(max-width:850px){.employee-home-support{grid-template-columns:1fr}}
+@media(max-width:640px){
+ .score-home-card-featured{padding:24px 20px}
+ .score-home-card-featured h2{font-size:19px}
+ .score-home-card-featured>.row .mascot-aura{width:70px;height:70px;flex-basis:70px}
+ .score-home-card-featured .score-home-value{font-size:82px;letter-spacing:-3px}
+ .score-home-card-featured .score-home-value span{font-size:20px}
+ .score-home-card-featured .score-pending{min-height:100px;padding:18px;margin-top:18px}
+ .score-home-card-featured .score-pending strong{font-size:22px}
+ .score-home-card-featured .score-pending p{font-size:12px}
+}
