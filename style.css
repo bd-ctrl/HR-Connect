@@ -49,3 +49,35 @@
 .employee-home-grid{grid-template-columns:minmax(0,1fr) minmax(320px,.86fr)}.score-home-card>.row .mascot-aura{width:74px;height:74px;flex:0 0 74px}.score-home-card>.row .mascot-aura img{width:100%;height:100%}.score-home-card h2,.month-comparison h2{margin:0}.score-home-value{margin:12px 0 0;color:#66509c;font-size:54px;font-weight:800;letter-spacing:-2px;line-height:1}.score-home-value span{font-size:18px;color:var(--muted);font-weight:600;letter-spacing:0}.score-home-card .result-bars{margin-top:18px}.score-pending{margin-top:18px;padding:15px;border-radius:14px;background:#f7f2fa}.score-pending strong{color:#6450a0}.score-pending p{margin:6px 0 0}.comparison-chart{display:grid;gap:18px;margin-top:20px}.comparison-label{display:flex;justify-content:space-between;gap:12px;margin-bottom:7px;font-size:13px}.comparison-label strong{color:#63527a}.comparison-track{height:14px;border-radius:99px;background:#f0eaf2;overflow:hidden}.comparison-track>span{display:block;height:100%;border-radius:inherit;background:linear-gradient(90deg,#9c8ac4,#c9b6df);transition:width .35s ease}.comparison-track>span.current{background:linear-gradient(90deg,#f0b0a5,#d57e9c)}.comparison-delta{margin:17px 0 0;font-weight:700;color:#746084}.comparison-delta.positive{color:#34796b}.comparison-delta.negative{color:#aa5e69}.comparison-note{font-size:12px;margin:6px 0 0}.feedback-guidance{line-height:1.75}.feedback-guidance strong{color:#65518e}.feedback-guidance span{color:#70627d}.icon-button{position:relative;display:inline-flex;align-items:center;justify-content:center;width:42px;height:42px;min-width:42px;padding:0;border:1px solid var(--line);border-radius:14px;background:#fffaf7;color:#63527a;box-shadow:0 3px 10px #7c687312}.icon-button svg,.logout-fab svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}.icon-button:hover,.logout-fab:hover{background:#f2eaf8;color:#574584}.icon-button:focus-visible,.logout-fab:focus-visible{outline:3px solid #8570ba;outline-offset:2px}.notification-badge{position:absolute;right:-4px;top:-4px;min-width:19px;height:19px;padding:0 5px;border-radius:12px;background:#df7189;color:#fff;font-size:10px;line-height:19px;font-weight:700;box-shadow:0 0 0 2px #fffaf5}.notification-item{display:flex;justify-content:space-between;gap:12px;padding:12px 14px;border-radius:12px;background:#f7f2fa}.notification-item strong{color:#63509a}.notification-item+.notification-item{margin-top:7px}.logout-fab{position:fixed;right:max(20px,env(safe-area-inset-right));bottom:max(22px,env(safe-area-inset-bottom));z-index:30;display:inline-flex;align-items:center;justify-content:center;width:52px;height:52px;border:1px solid #e5dce9;border-radius:18px;background:#fffaf7;color:#63527a;box-shadow:0 8px 24px #49375a26}.logout-fab svg{width:22px;height:22px}.topbar .notification-button{flex-shrink:0;margin-left:auto}
 @media(max-width:850px){.employee-home-grid{grid-template-columns:1fr 1fr}}
 @media(max-width:640px){.employee-home-grid{grid-template-columns:1fr}.role{gap:6px}.topbar .notification-button{width:38px;height:38px;min-width:38px;border-radius:12px}.score-home-value{font-size:48px}.comparison-label{font-size:12px}.logout-fab{right:14px;bottom:calc(82px + env(safe-area-inset-bottom));width:48px;height:48px;border-radius:16px}}
+
+
+/* Employee assessment history: visual monthly summary with expandable details. */
+.history-summary-card{margin-top:18px;overflow:hidden;background:linear-gradient(135deg,#fffaf7 0%,#f7f0fb 55%,#eef7f3 100%)}
+.history-summary-heading{display:flex;align-items:center;justify-content:space-between;gap:20px}
+.history-summary-heading h2{margin:0;color:#65518e}
+.history-summary-heading .eyebrow{margin:0 0 5px;color:#8874aa}
+.history-summary-heading .muted{margin:5px 0 0}
+.history-summary-total{flex:0 0 92px;width:92px;height:92px;border-radius:28px;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#fff;box-shadow:0 7px 20px #806d9a18;color:#65518e}
+.history-summary-total strong{font-size:32px;line-height:1}
+.history-summary-total span{font-size:12px;margin-top:5px}
+.history-summary-stats{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:20px}
+.history-summary-stats>div{padding:13px 15px;border-radius:14px;background:#ffffffb8;display:flex;flex-direction:column;gap:4px}
+.history-summary-stats span{font-size:12px;color:var(--muted)}
+.history-summary-stats strong{font-size:15px;color:#4f7771}
+.history-chart{display:flex;align-items:flex-end;justify-content:space-around;gap:12px;height:190px;margin-top:22px;padding:16px 16px 0;border-radius:18px;background:#ffffffa6}
+.history-bar-col{height:100%;flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:7px;min-width:0}
+.history-bar-count{font-size:12px;color:#65518e}
+.history-bar-track{height:112px;width:min(42px,70%);display:flex;align-items:flex-end;overflow:hidden;border-radius:14px 14px 6px 6px;background:#eee9f3}
+.history-bar-track span{display:block;width:100%;min-height:0;border-radius:inherit;background:linear-gradient(180deg,#d9a4c1,#8976bd);transition:height .25s ease}
+.history-bar-label{height:22px;font-size:11px;color:#766b80;white-space:nowrap}
+.history-details{margin-top:17px;border-top:1px solid #e9e0eb;padding-top:14px}
+.history-details summary{cursor:pointer;font-weight:700;color:#62518a;list-style:none}
+.history-details summary::-webkit-details-marker{display:none}
+.history-details summary:after{content:"＋";float:right;color:#8a79ac}
+.history-details[open] summary:after{content:"−"}
+.history-entry-list{margin-top:10px}
+.history-entry-list .task{padding:11px 0;border-bottom:1px solid #eee7ef}
+.history-summary-empty{margin-top:18px;text-align:center;padding:34px 22px}
+.history-empty-mark{width:58px;height:58px;margin:0 auto 10px;border-radius:20px;display:grid;place-items:center;background:#f3e8f7;color:#a66f9e;font-size:28px}
+.history-summary-empty h2{margin-bottom:6px;color:#65518e}
+@media(max-width:640px){.history-summary-heading{align-items:flex-start}.history-summary-total{flex-basis:72px;width:72px;height:72px;border-radius:22px}.history-summary-total strong{font-size:27px}.history-summary-stats{gap:8px}.history-summary-stats>div{padding:11px}.history-chart{height:170px;padding-left:8px;padding-right:8px;gap:6px}.history-bar-track{height:100px;width:min(34px,75%)}.history-bar-label{font-size:10px}}
