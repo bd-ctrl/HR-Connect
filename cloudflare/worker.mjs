@@ -1,6 +1,3 @@
-// CUBIC CONNECT scores-v1. Copy this complete file into the existing Cloudflare Worker.
-// Score data is enabled only after SCORE_STORAGE_PRIVATE=true and HR schema setup.
-// All Lark credentials are read from Cloudflare Variables and Secrets.
 const LARK_API = "https://open.larksuite.com/open-apis";
 const SESSION_SECONDS = 15 * 60;
 const encoder = new TextEncoder();
