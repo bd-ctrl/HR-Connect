@@ -8,7 +8,6 @@ function validate(f,state,rows,eligible=['non','mind','ploy'],round='2026-10'){
  if(state!=='open')errors.push('รอบนี้ปิดรับการประเมินแล้ว');
  if(f.target==='me')errors.push('ไม่สามารถประเมินตัวเองได้');
  if(!eligible.includes(f.target))errors.push('กรุณาเลือกผู้ร่วมงานต่างแผนกที่อยู่ในรายการของคุณ');
- if(!f.collaborated)errors.push('กรุณายืนยันว่าได้ร่วมงานจริงในรอบ 30 วันที่ผ่านมา');
  if(rows.some(s=>s.target===f.target&&s.rater==='me'&&s.round===round))errors.push('คุณส่งการประเมินคนนี้แล้วในรอบนี้');
  if(!Array.isArray(f.scores)||f.scores.length!==3)errors.push('ต้องให้คะแนนครบทั้ง 3 ด้าน');
  for(let i=0;i<3;i++){const v=f.scores?.[i];if(!Number.isInteger(v)||v<1||v>5)errors.push('กรุณาให้คะแนนด้าน'+dimensions[i]);else if(v<=3&&!String(f.reasons?.[i]||'').trim())errors.push('กรุณาระบุเหตุผลด้าน'+dimensions[i]);}
