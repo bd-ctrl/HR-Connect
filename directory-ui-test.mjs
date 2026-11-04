@@ -33,6 +33,8 @@ function fixture(mode = 'success') {
       });
       if(url.endsWith('/me/state')){
         if(mode==='api-missing')return Response.json({ok:false,error:'not_found'},{status:404});
+        if(mode==='score-setup-required')return Response.json({ok:false,error:'score_setup_required',message:'HR ต้องเตรียมคอลัมน์ตารางคะแนนก่อนใช้งาน'},{status:503});
+        if(mode==='score-private')return Response.json({ok:false,error:'score_storage_not_private',message:'ระบบคะแนนยังไม่พร้อมใช้งาน กรุณาให้ HR ตรวจการจำกัดสิทธิ์ Base'},{status:503});
         return Response.json({ok:true,round:'2026-10',round_state:'open',policy:{version:'test',minimum_raters:3},summary:{round:'2026-10',received:0,state:'no_evaluations',overall:null,dims:[0,1,2].map(()=>({mean:null}))},previous:{round:'2026-09',overall:null,dims:[0,1,2].map(()=>({mean:null}))},history,notifications:[]});
       }
       if(url.endsWith('/assessments')){
@@ -149,6 +151,19 @@ for(const mode of ['save-error','invalid-receipt']){
 }
 const noApi=fixture('api-missing');await noApi.login();await tick();
 ok(noApi.run('Scores.status()')==='error');ok(noApi.q('#app').innerHTML.includes('Worker ยังไม่ได้ติดตั้ง API คะแนนชุดใหม่'));
+for(const mode of ['score-setup-required','score-private','api-missing']){
+ const g=fixture(mode);await g.login();await tick();g.run("go('rate')");await tick();
+ ok(g.run("directory.status==='ready'&&!Scores.ready()"));
+ const picker=g.run("targetPicker('Project Co')");
+ ok(picker.includes('โครงการใหม่')&&picker.includes('<option value="Project Co"'));
+ ok(!/<select id="department"[^>]*\sdisabled/.test(picker)&&!/<select id="target-person"[^>]*\sdisabled/.test(picker));
+ ok(g.q('#app').innerHTML.includes("class='demo'>BASE"));
+ g.q('#department').value='Project Co';g.q('#target-person').value='rec-project';
+ await g.q('#target-person').handlers.change({target:g.q('#target-person')});
+ ok(g.q('#begin-person').disabled);
+ g.run("start('rec-project')");ok(g.run('form')===null);
+ ok(!g.calls.some(call=>call.url.endsWith('/assessments')));
+}
 const race=fixture('pending-save');await race.login();await tick();race.run("go('rate')");await tick();race.run("start('rec-hr');form.scores=[4,4,5];stage='review';showDialog=content=>{globalThis.savedDialog=content}");race.run('render()');
 const waiting=race.q('#submit-form').handlers.click();await tick();await race.q('#submit-form').handlers.click();
 ok(race.calls.filter(c=>c.url.endsWith('/assessments')).length===1);
