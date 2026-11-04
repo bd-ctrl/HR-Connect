@@ -1,35 +1,38 @@
 # CUBIC CONNECT
 
-ซอร์สโค้ดแอปประเมินข้ามแผนก SUITCUBE และหน้าล็อกอินสำหรับ GitHub Pages
+ระบบประเมินความร่วมมือข้ามแผนก SUITCUBE / Cubic Group
 
-## เปิดเว็บไซต์
+หน้า GitHub Pages: https://bd-ctrl.github.io/HR-Connect/
 
-GitHub Settings → Pages → Deploy from a branch → main → / (root) → Save
+## การเชื่อมต่อปัจจุบัน
 
-URL หลังเปิด Pages: https://bd-ctrl.github.io/HR-Connect/
+- `login.js` เรียก Worker เพื่อตรวจบัญชี เก็บ session token เฉพาะหน่วยความจำ ไม่เก็บเลขบัตรใน localStorage
+- `app.js` และ `live-scores.js` อ่านทะเบียนพนักงาน ประวัติส่ง คะแนนส่วนตัว และคิวตรวจสอบจาก Worker ไม่ใช้ข้อมูลสังเคราะห์แทนผลจริง
+- ผลใหม่ขึ้นว่าส่งสำเร็จต่อเมื่อ Worker ยืนยันว่าบันทึกครบ 3 ด้านใน Base แล้ว หากส่งไม่ครบหรือเน็ตหลุดให้ลองส่งข้อมูลเดิมอีกครั้งได้
+- ร่างยังบันทึกเฉพาะอุปกรณ์และบัญชีที่กำลังใช้งาน ผลเก่าที่เคยเก็บในเครื่องไม่ถูกส่งเข้า Base อัตโนมัติ
+- `cloudflare/worker.mjs` คือ Worker ฉบับรวมสำหรับนำไปแทนที่ไฟล์ใน Cloudflare มีล็อกอิน รายชื่อ ส่งผล อ่านผลส่วนตัว เตรียมคอลัมน์ และคิว HR
 
-## โค้ดล็อกอินอยู่ที่ไหน
+**ต้องนำ Worker ฉบับใหม่ไป Deploy ใน Cloudflare ของผู้ดูแลก่อน** การ push GitHub Pages ไม่ได้ Deploy Worker ภายนอกนี้ หาก Worker เดิมยังมีเฉพาะ login/employees หน้าเว็บจะแจ้งว่ายังไม่มี API คะแนนและจะไม่บันทึกผลแบบจำลองแทน
 
-- `login.js`: หน้า Login เวอร์ชัน GitHub Pages (ยังไม่ส่งเลขบัตรไปตรวจสอบ)
-- `public/login.js`: โค้ด Login จากแอปเดิม เรียก /api/login และ /api/login/status
-- `lib/login-api.js`: เซิร์ฟเวอร์ส่ง Webhook ไป Lark รับผล callback และจัดการ session
-- `app/api/[...path]/route.ts`: route ฝั่งเซิร์ฟเวอร์
-- `db/schema.ts`, `drizzle/`: โครงสร้างฐานข้อมูล login challenge/session
+อ่านวิธีติดตั้งและขอบเขตใน [cloudflare/README.md](cloudflare/README.md)
 
-## สถานะการเชื่อมต่อ
+## เงื่อนไขคะแนน
 
-GitHub Pages แสดง HTML, CSS, JavaScript และรูป/GIF ได้ แต่รัน API ไม่ได้ หน้าล็อกอินของ Pages จึงแสดงข้อความว่ายังไม่เชื่อม API และไม่ส่งหรือเก็บเลขบัตรประชาชน ไม่มีการจำลองว่า Login ผ่าน
+เก็บคะแนน 1–5 ครบ 3 ด้าน คะแนน 1–3 ต้องมีเหตุผลแยกแต่ละด้าน และรอ HR ตรวจสอบ คะแนน 4–5 ผ่านอัตโนมัติ ก่อนแสดงค่าเฉลี่ยยังคงเกณฑ์ผู้ประเมินอย่างน้อย 3 คนต่อด้านตามกติกาเดิม หากมีผลเพียงหนึ่งคนจะแสดงว่ารับการประเมินแล้วและรอข้อมูลครบเกณฑ์
 
-API เดิมอาศัย Cloudflare D1 และ Sites authenticated identity รวมทั้ง service-access validation ที่ hosting dispatch จึงต้องปรับ authentication, CORS, cookie policy และ callback protection หากจะย้ายไปใช้ร่วมกับ GitHub Pages ห้ามเปิด API เดิมตรงๆ โดยตัดการตรวจสิทธิ์ออก
+ผู้รับเห็นเฉพาะผลรวมของตัวเอง ไม่มีชื่อผู้ประเมิน เหตุผลดิบ หรือหมายเหตุ HR ใน API ผู้รับ HR ใช้คิวตรวจสอบจริงจาก Base ได้แล้ว รายงานภาพรวม/แผนพัฒนาจากต้นแบบยังไม่ถูกนำมาแสดงเป็นข้อมูลจริง
 
-ค่าฝั่งเซิร์ฟเวอร์ที่ต้องตั้ง: DB, SITE_ORIGIN, LARK_LOGIN_WEBHOOK_URL, LARK_CALLBACK_ACCESS_TOKEN, SETUP_OWNER_EMAIL ไม่มีค่า secret จริงใน repository และไม่มีทะเบียนพนักงานจริง
+## ก่อนส่งผลจริง
 
-ต้นแบบส่วนประเมิน/HR ยังใช้ข้อมูลสังเคราะห์ การค้นหาเลขบัตรอย่างเดียวไม่พิสูจน์ความเป็นเจ้าของบัญชี ปัญหาผลตอบกลับ Lark เดิมยังไม่ได้ยืนยันว่าแก้สำเร็จ
+Base ที่เก็บทะเบียนและเหตุผลประเมินต้องจำกัดการเข้าถึงให้เฉพาะผู้มีสิทธิ์ หลังตรวจการแชร์แล้วจึงตั้ง `SCORE_STORAGE_PRIVATE=true` ใน Worker แอป Lark ต้องมีสิทธิ์อ่าน/เขียน Base และสิทธิ์แก้ไขเอกสารนั้น
 
-## ซอร์สเซิร์ฟเวอร์เดิม
+รูปแบบล็อกอินยังใช้การค้นเลขในทะเบียนเดิม เลขบัตรเพียงอย่างเดียวไม่พิสูจน์เจ้าของบัญชี ไม่อ้างว่าระบบพร้อมใช้งานวงกว้างหรือปกปิดตัวตนจากผู้ดูแล Base ได้
 
-`app/`, `lib/`, `worker/`, `public/`, `db/`, `scripts/` และ package lock เก็บโครงสร้างต้นแบบ Vinext/Cloudflare เดิม ไม่มี Site project identity หรือ runtime secrets การ deploy ต้องผูก hosting และฐานข้อมูลของผู้ดูแลเอง
+## การตรวจสอบ
 
-## ตรวจสอบ
+ใช้ Node 22.13 ขึ้นไป:
 
-ใช้ Node 22.13+ รัน `node test.cjs`, `node --experimental-sqlite login-test.mjs`, `node login-ui-test.mjs`
+- `node cloudflare/worker-test.mjs`: ทดสอบสิทธิ์ การบันทึกครบชุด การส่งซ้ำ การกู้คืนหลังส่งไม่ครบ คะแนน และ HR review ด้วย Lark API สมมติ
+- `node directory-ui-test.mjs`: ทดสอบหน้าเว็บกับ API สมมติ รวมกรณี API ยังไม่ติดตั้ง ส่งไม่สำเร็จ ใบตอบรับไม่ครบ กดซ้ำ และ logout ระหว่างรอ
+
+`workflow-preview.html` และซอร์สเดิมใน `public/`, `app/`, `lib/`, `worker/`, `db/` เป็นโครงสร้างต้นแบบเดิม ไม่ใช่ Worker ภายนอกที่ใช้กับ GitHub Pages ในปัจจุบัน ไม่มี runtime secret ใน repository

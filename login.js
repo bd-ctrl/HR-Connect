@@ -28,6 +28,18 @@
   if(!Array.isArray(data.employees))throw Error('invalid_directory');
   return data;
  }
+ async function request(path,options={}){
+  if(!signedIn||Date.now()>=sessionExpiresAt)throw Object.assign(Error('กรุณาเข้าสู่ระบบใหม่'),{code:'session_expired'});
+  if(!sessionToken)throw Object.assign(Error('กรุณาเข้าสู่ระบบใหม่เพื่อโหลดคะแนน'),{code:'directory_session_missing'});
+  const g=generation,method=options.method||'GET';let response;
+  try{response=await fetch(API_BASE+path,{method,mode:'cors',credentials:'omit',headers:{Authorization:'Bearer '+sessionToken,...(options.body?{'Content-Type':'application/json'}:{})},...(options.body?{body:JSON.stringify(options.body)}:{}),cache:'no-store',signal:AbortSignal.timeout(method==='GET'?30000:45000)})}
+  catch(error){throw Object.assign(Error(error.name==='TimeoutError'||error.name==='AbortError'?'ยังยืนยันผลการเชื่อมต่อไม่ได้ กรุณาลองอีกครั้ง':'เชื่อมต่อระบบคะแนนไม่ได้ กรุณาลองอีกครั้ง'),{code:'score_connection_failed'})}
+  if(g!==generation||!signedIn)throw Object.assign(Error('บัญชีที่ใช้งานเปลี่ยนแล้ว'),{code:'session_changed'});
+  let data;try{data=await response.json()}catch{throw Object.assign(Error('ระบบคะแนนตอบกลับไม่ถูกต้อง'),{code:'invalid_score_response'})}
+  if(response.status===401){sessionToken='';sessionExpiresAt=0;throw Object.assign(Error('กรุณาเข้าสู่ระบบใหม่'),{code:'session_expired'})}
+  if(!response.ok||data?.ok!==true)throw Object.assign(Error(response.status===404?'Worker ยังไม่ได้ติดตั้ง API คะแนนชุดใหม่':data?.message||'โหลดข้อมูลคะแนนไม่สำเร็จ'),{code:response.status===404?'score_api_missing':data?.error||'score_error',status:response.status});
+  return data;
+ }
  const messages={network_timeout:"เชื่อมต่อใช้เวลานานเกินไป กรุณาตรวจอินเทอร์เน็ตแล้วลองใหม่",invalid_national_id:"กรุณาตรวจสอบข้อมูลที่กรอก",not_found:"ไม่สามารถยืนยันข้อมูลได้ กรุณาตรวจสอบหรือติดต่อ HR",connection_unavailable:"ระบบตรวจสอบพนักงานขัดข้อง กรุณาลองใหม่ภายหลัง",invalid_response:"Worker ส่งข้อมูลกลับมาไม่ถูกต้อง กรุณาตรวจการตอบกลับของ API",worker_unreachable:"เชื่อมต่อ Worker ไม่ได้ กรุณาตรวจ URL และการตั้งค่า CORS"};
  function render(onLogin){
   const root=document.querySelector('#app');
@@ -54,6 +66,6 @@
   };
 
  }
- window.GlowLogin={active:()=>signedIn,profile:()=>profile,render,employees,logout:()=>{generation++;signedIn=false;profile=null;sessionToken='';sessionExpiresAt=0}};
+ window.GlowLogin={request,active:()=>signedIn,profile:()=>profile,render,employees,logout:()=>{generation++;signedIn=false;profile=null;sessionToken='';sessionExpiresAt=0}};
 })();
 
