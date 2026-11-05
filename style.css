@@ -121,3 +121,7 @@
 .score-home-card-featured .score-home-mascot{width:200px!important;height:200px!important;flex:0 0 200px!important}
 .score-home-card-featured .score-home-mascot img{width:100%!important;height:100%!important;object-fit:contain}
 @media(max-width:640px){.score-home-card-featured .score-home-mascot{width:150px!important;height:150px!important;flex-basis:150px!important}}
+.collaborator-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:96px;margin-bottom:6px}.collaborator-heading h2{margin:0}.feedback-guidance{padding:0;margin:6px 0 22px;background:transparent;border:0;box-shadow:none}.colleague-chat{display:block;flex:0 0 144px;width:144px;height:96px;overflow:visible;animation:colleague-conversation 4s ease-in-out infinite}.colleague-chat img{display:block;width:100%;height:100%;object-fit:contain}.session-notice{margin:14px 0;text-align:left;line-height:1.6}
+@keyframes colleague-conversation{0%,100%{transform:rotate(-1deg)}50%{transform:rotate(1deg) translateY(-2px)}}
+@media(max-width:600px){.collaborator-heading{gap:8px;min-height:80px}.collaborator-heading h2{font-size:20px}.colleague-chat{flex-basis:118px;width:118px;height:80px}}
+@media(prefers-reduced-motion:reduce){.colleague-chat{animation:none!important}}

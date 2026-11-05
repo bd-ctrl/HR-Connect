@@ -3,7 +3,13 @@
  // Verify the ID through the Cloudflare Worker. Keep the ID only in the request body.
  const API_BASE='https://cubic-connect-api.ba-bd5.workers.dev';
  const API_URL=API_BASE+'/login';
- let signedIn=false,profile=null,generation=0,sessionToken='',sessionExpiresAt=0;
+ let signedIn=false,profile=null,generation=0,sessionToken='',sessionExpiresAt=0,expiredHandler=null,loginNotice='';
+ function expireSession(code){if(signedIn)expiredHandler?.(code);sessionToken='';sessionExpiresAt=0;}
+ function checkSession(){
+  if(!signedIn)return false;
+  const code=!sessionToken?'directory_session_missing':Date.now()>=sessionExpiresAt?'session_expired':'';
+  if(code){expireSession(code);return false;}return true;
+ }
  const verifyEmployee=async loginCode=>{
   const body=loginCode.startsWith('00009')?{admin_code:loginCode}:{national_id:loginCode};
   const response=await fetch(API_URL,{method:'POST',mode:'cors',credentials:'omit',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),cache:'no-store',signal:AbortSignal.timeout(15000)});
@@ -15,35 +21,36 @@
  // Keep the bearer token in this closure; do not persist it or the ID in browser storage.
  async function employees(){
   if(!signedIn)throw Error('session_expired');
-  if(!sessionToken)throw Error('directory_session_missing');
-  if(Date.now()>=sessionExpiresAt)throw Error('session_expired');
+  if(!sessionToken){expireSession('directory_session_missing');throw Error('directory_session_missing');}
+  if(Date.now()>=sessionExpiresAt){expireSession('session_expired');throw Error('session_expired');}
   const g=generation;
   let response;
   try{response=await fetch(API_BASE+'/employees',{method:'GET',mode:'cors',credentials:'omit',headers:{Authorization:'Bearer '+sessionToken},cache:'no-store',signal:AbortSignal.timeout(15000)})}
   catch(err){if(err.name==='AbortError'||err.name==='TimeoutError')throw Error('directory_timeout');throw Error('directory_unavailable')}
   if(g!==generation||!signedIn)throw Error('session_changed');
+  if(response.status===401){expireSession('session_expired');throw Error('session_expired')}
   let data;try{data=await response.json()}catch{throw Error('invalid_directory')}
-  if(response.status===401){sessionToken='';sessionExpiresAt=0;throw Error('session_expired')}
   if(!response.ok||data?.ok!==true)throw Error('directory_unavailable');
   if(!Array.isArray(data.employees))throw Error('invalid_directory');
   return data;
  }
  async function request(path,options={}){
-  if(!signedIn||Date.now()>=sessionExpiresAt)throw Object.assign(Error('กรุณาเข้าสู่ระบบใหม่'),{code:'session_expired'});
-  if(!sessionToken)throw Object.assign(Error('กรุณาเข้าสู่ระบบใหม่เพื่อโหลดคะแนน'),{code:'directory_session_missing'});
+  if(!signedIn)throw Object.assign(Error('กรุณาเข้าสู่ระบบใหม่'),{code:'session_expired'});
+  if(!sessionToken){expireSession('directory_session_missing');throw Object.assign(Error('กรุณาเข้าสู่ระบบใหม่'),{code:'directory_session_missing'});}
+  if(Date.now()>=sessionExpiresAt){expireSession('session_expired');throw Object.assign(Error('กรุณาเข้าสู่ระบบใหม่'),{code:'session_expired'});}
   const g=generation,method=options.method||'GET';let response;
   try{response=await fetch(API_BASE+path,{method,mode:'cors',credentials:'omit',headers:{Authorization:'Bearer '+sessionToken,...(options.body?{'Content-Type':'application/json'}:{})},...(options.body?{body:JSON.stringify(options.body)}:{}),cache:'no-store',signal:AbortSignal.timeout(method==='GET'?30000:45000)})}
   catch(error){throw Object.assign(Error(error.name==='TimeoutError'||error.name==='AbortError'?'ยังยืนยันผลการเชื่อมต่อไม่ได้ กรุณาลองอีกครั้ง':'เชื่อมต่อระบบคะแนนไม่ได้ กรุณาลองอีกครั้ง'),{code:'score_connection_failed'})}
   if(g!==generation||!signedIn)throw Object.assign(Error('บัญชีที่ใช้งานเปลี่ยนแล้ว'),{code:'session_changed'});
+  if(response.status===401){expireSession('session_expired');throw Object.assign(Error('กรุณาเข้าสู่ระบบใหม่'),{code:'session_expired'})}
   let data;try{data=await response.json()}catch{throw Object.assign(Error('ระบบคะแนนตอบกลับไม่ถูกต้อง'),{code:'invalid_score_response'})}
-  if(response.status===401){sessionToken='';sessionExpiresAt=0;throw Object.assign(Error('กรุณาเข้าสู่ระบบใหม่'),{code:'session_expired'})}
   if(!response.ok||data?.ok!==true)throw Object.assign(Error(response.status===404?'Worker ยังไม่ได้ติดตั้ง API คะแนนชุดใหม่':data?.message||'โหลดข้อมูลคะแนนไม่สำเร็จ'),{code:response.status===404?'score_api_missing':data?.error||'score_error',status:response.status});
   return data;
  }
  const messages={network_timeout:"เชื่อมต่อใช้เวลานานเกินไป กรุณาตรวจอินเทอร์เน็ตแล้วลองใหม่",invalid_national_id:"กรุณาตรวจสอบข้อมูลที่กรอก",not_found:"ไม่สามารถยืนยันข้อมูลได้ กรุณาตรวจสอบหรือติดต่อ HR",connection_unavailable:"ระบบตรวจสอบพนักงานขัดข้อง กรุณาลองใหม่ภายหลัง",invalid_response:"Worker ส่งข้อมูลกลับมาไม่ถูกต้อง กรุณาตรวจการตอบกลับของ API",worker_unreachable:"เชื่อมต่อ Worker ไม่ได้ กรุณาตรวจ URL และการตั้งค่า CORS"};
  function render(onLogin){
   const root=document.querySelector('#app');
-  root.innerHTML=`<main class="login-page"><section class="login-card" aria-labelledby="login-heading"><div class="login-brand"><div class="logo">CUBIC CONNECT<span>✦</span></div><div class="brand-caption">SUITCUBE · PEOPLE & CULTURE</div></div><div class="login-mascot"><picture><source media="(prefers-reduced-motion: reduce)" srcset="assets/rating-4.png"><img src="assets/rating-4.gif" alt="น้องดาวยิ้มต้อนรับ" width="170" height="170"></picture></div><div class="eyebrow">WELCOME TO CUBIC CONNECT</div><h1 id="login-heading">เข้าสู่ระบบประเมิน</h1><p class="muted">ทุกความคิดเห็น ช่วยให้เราเติบโตไปด้วยกัน</p><form id="employee-login" novalidate><div class="field login-code-field"><label class="sr-only" for="employee-code">เลขบัตรประชาชน</label><div class="login-code-row"><input id="employee-code" name="employee-code" type="text" inputmode="numeric" autocomplete="username" placeholder="เลขบัตรประชาชน" maxlength="13" pattern="[0-9]{13}" aria-describedby="employee-help employee-error" required><button id="employee-submit" class="login-submit star-login" type="submit" aria-label="เข้าสู่ระบบ" title="เข้าสู่ระบบ"><svg class="login-star-shape" viewBox="0 0 180 172" aria-hidden="true"><path d="M83 9Q90 -1 97 9L117 46Q120 51 126 52L168 58Q181 60 171 71L142 100Q138 104 139 111L146 153Q149 167 136 161L96 141Q90 138 84 141L44 161Q31 167 34 153L41 111Q42 104 38 100L9 71Q-1 60 12 58L54 52Q60 51 63 46Z"/></svg><svg class="login-keyhole" viewBox="0 0 24 24" aria-hidden="true"><path d="M16 10a4 4 0 1 0-6 3.46L9 20h6l-1-6.54A4 4 0 0 0 16 10Z"/></svg></button></div><div id="employee-help" class="sr-only" aria-live="polite"></div></div><div id="employee-error" class="error" role="alert" hidden></div></form><a href="workflow-preview.html" class="secondary" style="display:block;margin-top:20px;text-align:center;text-decoration:none">ดูตัวอย่างฟีดแบ็กและ HR</a><p class="muted" style="font-size:11px;margin-top:8px">ข้อมูลสมมติ · ไม่ต้องกรอกเลขบัตรเพื่อดูตัวอย่าง</p></section><p class="login-bottom">SUITCUBE · พื้นที่สำหรับคำขอบคุณ และการเติบโตร่วมกัน</p></main>`;
+  root.innerHTML=`<main class="login-page"><section class="login-card" aria-labelledby="login-heading"><div class="login-brand"><div class="logo">CUBIC CONNECT<span>✦</span></div><div class="brand-caption">SUITCUBE · PEOPLE & CULTURE</div></div><div class="login-mascot"><picture><source media="(prefers-reduced-motion: reduce)" srcset="assets/rating-4.png"><img src="assets/rating-4.gif" alt="น้องดาวยิ้มต้อนรับ" width="170" height="170"></picture></div><div class="eyebrow">WELCOME TO CUBIC CONNECT</div><h1 id="login-heading">เข้าสู่ระบบประเมิน</h1><p class="muted">ทุกความคิดเห็น ช่วยให้เราเติบโตไปด้วยกัน</p>${loginNotice?`<p class="notice session-notice" role="status">${loginNotice}</p>`:''}<form id="employee-login" novalidate><div class="field login-code-field"><label class="sr-only" for="employee-code">เลขบัตรประชาชน</label><div class="login-code-row"><input id="employee-code" name="employee-code" type="text" inputmode="numeric" autocomplete="username" placeholder="เลขบัตรประชาชน" maxlength="13" pattern="[0-9]{13}" aria-describedby="employee-help employee-error" required><button id="employee-submit" class="login-submit star-login" type="submit" aria-label="เข้าสู่ระบบ" title="เข้าสู่ระบบ"><svg class="login-star-shape" viewBox="0 0 180 172" aria-hidden="true"><path d="M83 9Q90 -1 97 9L117 46Q120 51 126 52L168 58Q181 60 171 71L142 100Q138 104 139 111L146 153Q149 167 136 161L96 141Q90 138 84 141L44 161Q31 167 34 153L41 111Q42 104 38 100L9 71Q-1 60 12 58L54 52Q60 51 63 46Z"/></svg><svg class="login-keyhole" viewBox="0 0 24 24" aria-hidden="true"><path d="M16 10a4 4 0 1 0-6 3.46L9 20h6l-1-6.54A4 4 0 0 0 16 10Z"/></svg></button></div><div id="employee-help" class="sr-only" aria-live="polite"></div></div><div id="employee-error" class="error" role="alert" hidden></div></form><a href="workflow-preview.html" class="secondary" style="display:block;margin-top:20px;text-align:center;text-decoration:none">ดูตัวอย่างฟีดแบ็กและ HR</a><p class="muted" style="font-size:11px;margin-top:8px">ข้อมูลสมมติ · ไม่ต้องกรอกเลขบัตรเพื่อดูตัวอย่าง</p></section><p class="login-bottom">SUITCUBE · พื้นที่สำหรับคำขอบคุณ และการเติบโตร่วมกัน</p></main>`;
   const field=document.querySelector('#employee-code'),error=document.querySelector('#employee-error');
   field.addEventListener('input',()=>{field.value=field.value.replace(/[^0-9]/g,'').slice(0,13);error.hidden=true;field.removeAttribute('aria-invalid')});
   document.querySelector('#employee-login').onsubmit=async e=>{
@@ -55,9 +62,9 @@
     if(g!==generation)return;
     const employee=result.employee;
     const isAdmin=String(employee.role||'').toLowerCase()==='admin';
-    profile={id:String(employee.id||''),nickname:isAdmin?'ADMIN':String(employee.nickname||employee.name||''),department:String(employee.department||''),role:isAdmin?'admin':'employee'};
+    profile={id:String(employee.id||''),nickname:String(employee.nickname||employee.name||(isAdmin?'ADMIN':'')),department:String(employee.department||''),role:isAdmin?'admin':'employee'};
     sessionToken=result.token;sessionExpiresAt=Date.now()+Math.max(0,result.expiresIn)*1000;
-    signedIn=true;onLogin(profile.role);window.scrollTo(0,0);
+    signedIn=true;loginNotice='';onLogin(profile.role);window.scrollTo(0,0);
    }catch(err){
     if(g===generation){const isTimeout=err.name==='TimeoutError'||err.name==='AbortError';const message=messages[err.message];error.textContent=isTimeout?messages.network_timeout:(err.name==='TypeError'?messages.worker_unreachable:(message||err.message||messages.connection_unavailable));error.hidden=false;field.value=''}
    }finally{
@@ -66,6 +73,6 @@
   };
 
  }
- window.GlowLogin={request,active:()=>signedIn,profile:()=>profile,render,employees,logout:()=>{generation++;signedIn=false;profile=null;sessionToken='';sessionExpiresAt=0}};
+ window.GlowLogin={request,active:()=>signedIn,profile:()=>profile,render,employees,checkSession,onExpired:handler=>{expiredHandler=handler;},logout:reason=>{generation++;signedIn=false;profile=null;sessionToken='';sessionExpiresAt=0;loginNotice=reason==='session_expired'?'เซสชันหมดอายุแล้ว กรุณาเข้าสู่ระบบอีกครั้ง':reason==='directory_session_missing'?'กรุณาเข้าสู่ระบบอีกครั้งเพื่อเชื่อมต่อบัญชี':'';}};
 })();
 

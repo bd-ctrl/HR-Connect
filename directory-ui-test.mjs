@@ -18,7 +18,7 @@ function fixture(mode = 'success') {
     return elements.get(selector);
   };
   let clock = Date.now(), resolveDirectory, resolveSave, history=[];
-  class TestDate extends Date {static now(){return clock;}}
+  class TestDate extends Date {constructor(...args){super(...(args.length?args:[clock]));}static now(){return clock;}}
   const context = {
     document:{querySelector:q,querySelectorAll:()=>[],addEventListener(){}},
     window:{scrollTo(){}},
@@ -28,14 +28,15 @@ function fixture(mode = 'success') {
     fetch:async (url, options) => {
       calls.push({url,options});
       if(url.endsWith('/login'))return Response.json({
-        ok:true,employee:{id:'rec-self',nickname:'ผู้ทดสอบ',department:'BA',role:'employee'},
+        ok:true,employee:{id:'rec-self',nickname:mode==='nickname-escape'?'<img src=x onerror="bad()">':'ผู้ทดสอบ',department:'BA',role:'employee'},
         ...(mode==='no-session'?{}:{session_token:'test-session-token',expires_in:900})
       });
       if(url.endsWith('/me/state')){
+        if(mode==='score-unauthorized')return new Response('Session expired',{status:401});
         if(mode==='api-missing')return Response.json({ok:false,error:'not_found'},{status:404});
         if(mode==='score-setup-required')return Response.json({ok:false,error:'score_setup_required',message:'HR ต้องเตรียมคอลัมน์ตารางคะแนนก่อนใช้งาน'},{status:503});
         if(mode==='score-private')return Response.json({ok:false,error:'score_storage_not_private',message:'ระบบคะแนนยังไม่พร้อมใช้งาน กรุณาให้ HR ตรวจการจำกัดสิทธิ์ Base'},{status:503});
-        return Response.json({ok:true,round:'2026-10',round_state:'open',policy:{version:'test',minimum_raters:3},summary:{round:'2026-10',received:0,state:'no_evaluations',overall:null,dims:[0,1,2].map(()=>({mean:null}))},previous:{round:'2026-09',overall:null,dims:[0,1,2].map(()=>({mean:null}))},history,notifications:[]});
+        return Response.json({ok:true,round:'2026-10',round_state:mode==='closed-round'?'review':'open',policy:{version:'test',minimum_raters:3},summary:{round:'2026-10',received:0,state:'no_evaluations',overall:null,dims:[0,1,2].map(()=>({mean:null}))},previous:{round:'2026-09',overall:null,dims:[0,1,2].map(()=>({mean:null}))},history,notifications:[]});
       }
       if(url.endsWith('/assessments')){
         assert.equal(options.headers.Authorization,'Bearer test-session-token');
@@ -76,6 +77,7 @@ function fixture(mode = 'success') {
       await q('#employee-login').onsubmit({preventDefault(){}});
     },
     expire(){clock+=16*60000;},
+    setTime(iso){clock=Date.parse(iso);},
     finish(){resolveDirectory?.();resolveSave?.();}
   };
 }
@@ -111,7 +113,7 @@ ok(f.q('#app').innerHTML.includes('ยืนยันส่งการประ
 f.run('showDialog=content=>{globalThis.savedDialog=content}');
 await f.q('#submit-form').handlers.click();
 ok(f.run("Scores.history().some(row=>row.target==='rec-hr')"));
-ok(f.run('savedDialog').includes('บันทึกผลประเมินครบ 3 ด้านใน Base แล้ว'));
+ok(f.run('savedDialog').includes('บันทึกผลประเมินครบ 3 ด้านแล้ว'));
 ok(f.run("GlowLogic.validate({target:'rec-project',scores:[4,4,5],reasons:['','','']},'open',[],eligible,ROUND).length")===0);
 ok(f.run("GlowLogic.validate({target:'rec-project',scores:[3,4,5],reasons:['','','']},'open',[],eligible,ROUND).length")===1);
 ok(f.run("GlowLogic.validate({target:'rec-project',scores:[3,4,5],reasons:['ตัวอย่างสถานการณ์','','']},'open',[],eligible,ROUND).length")===0);
@@ -125,9 +127,13 @@ for(const mode of ['error','unauthorized','no-session','invalid','empty']){
   const g=fixture(mode);await g.login();g.run("go('rate')");await tick();
   if(mode==='empty'){
     ok(g.run('directory.status')==='ready' && g.q('#app').innerHTML.includes('ยังไม่มีรายชื่อผู้ร่วมงานที่พร้อมให้ประเมิน'));
+  }else if(mode==='unauthorized'||mode==='no-session'){
+    ok(g.run('GlowLogin.active()')===false && g.run('eligible.length')===0);
+    ok(g.q('#app').innerHTML.includes('id="employee-login"'));
+    ok(g.q('#app').innerHTML.includes(mode==='unauthorized'?'เซสชันหมดอายุแล้ว':'เชื่อมต่อบัญชี'));
   }else{
     ok(g.run('directory.status')==='error' && g.run('eligible.length')===0);
-    ok(g.q('#app').innerHTML.includes(mode==='unauthorized'||mode==='no-session'?'directory-relogin':'retry-directory'));
+    ok(g.q('#app').innerHTML.includes('retry-directory'));
   }
   ok(!g.run('targetPicker()').includes('พลอย'));
 }
@@ -150,23 +156,60 @@ for(const mode of ['save-error','invalid-receipt']){
  ok(g.q('#app').innerHTML.includes('ยังยืนยัน'));
 }
 const noApi=fixture('api-missing');await noApi.login();await tick();
-ok(noApi.run('Scores.status()')==='error');ok(noApi.q('#app').innerHTML.includes('Worker ยังไม่ได้ติดตั้ง API คะแนนชุดใหม่'));
+ok(noApi.run('Scores.status()')==='error');ok(noApi.q('#app').innerHTML.includes('ระบบประเมินยังไม่พร้อมใช้งาน'));
 for(const mode of ['score-setup-required','score-private','api-missing']){
  const g=fixture(mode);await g.login();await tick();g.run("go('rate')");await tick();
  ok(g.run("directory.status==='ready'&&!Scores.ready()"));
  const picker=g.run("targetPicker('Project Co')");
  ok(picker.includes('โครงการใหม่')&&picker.includes('<option value="Project Co"'));
  ok(!/<select id="department"[^>]*\sdisabled/.test(picker)&&!/<select id="target-person"[^>]*\sdisabled/.test(picker));
- ok(g.q('#app').innerHTML.includes("class='demo'>BASE"));
- g.q('#department').value='Project Co';g.q('#target-person').value='rec-project';
+ ok(!g.q('#app').innerHTML.includes("class='demo'>BASE"));
+ g.q('#department').value='Project Co';await g.q('#department').handlers.change({target:g.q('#department')});g.q('#target-person').value='rec-project';
  await g.q('#target-person').handlers.change({target:g.q('#target-person')});
- ok(g.q('#begin-person').disabled);
- g.run("start('rec-project')");ok(g.run('form')===null);
+ ok(!g.q('#begin-person').disabled);
+ g.run('render()');
+ ok(g.q('#app').innerHTML.includes('value="rec-project" selected'));
+ await g.q('#begin-person').handlers.click();ok(g.run('form.target')==='rec-project');
+ g.run("form.scores=[4,4,5];stage='review';render()");
+ await g.q('#submit-form').handlers.click();
+ ok(g.run('form.target')==='rec-project'&&g.q('#app').innerHTML.includes('กรุณาบันทึกร่างไว้'));
+ ok(!g.q('#app').innerHTML.includes('HR ต้องเตรียมคอลัมน์')&&!g.q('#app').innerHTML.includes('ลองโหลดคะแนนอีกครั้ง'));
  ok(!g.calls.some(call=>call.url.endsWith('/assessments')));
 }
 const race=fixture('pending-save');await race.login();await tick();race.run("go('rate')");await tick();race.run("start('rec-hr');form.scores=[4,4,5];stage='review';showDialog=content=>{globalThis.savedDialog=content}");race.run('render()');
 const waiting=race.q('#submit-form').handlers.click();await tick();await race.q('#submit-form').handlers.click();
 ok(race.calls.filter(c=>c.url.endsWith('/assessments')).length===1);
 race.run('signOut()');race.finish();await waiting;ok(race.run('Scores.status()')==='idle');ok(race.run('typeof savedDialog')==='undefined');
+
+// A valid selection enables the form; mismatched, self, completed and closed targets stay blocked.
+const selection=fixture();await selection.login();await tick();selection.run("go('rate')");await tick();
+selection.q('#department').value='Project Co';await selection.q('#department').handlers.change({target:selection.q('#department')});selection.q('#target-person').value='rec-hr';
+await selection.q('#target-person').handlers.change({target:selection.q('#target-person')});ok(selection.q('#begin-person').disabled);
+selection.q('#target-person').value='rec-project';await selection.q('#target-person').handlers.change({target:selection.q('#target-person')});ok(!selection.q('#begin-person').disabled);
+selection.run('render()');ok(selection.q('#app').innerHTML.includes('value="rec-project" selected'));
+selection.run("start('rec-self')");ok(selection.run('form')===null);
+selection.run("db.notWorked.push('rec-project');start('rec-project')");ok(selection.run('form')===null);
+const closed=fixture('closed-round');await closed.login();await tick();closed.run("go('rate')");await tick();closed.run("start('rec-project')");ok(closed.run('form')===null);
+
+// Expired sessions leave the authenticated screen and retain the current account's draft.
+const draft=fixture();await draft.login();await tick();draft.run("go('rate')");await tick();draft.run("start('rec-project');form.scores=[4,4,5]");draft.q('#context').value='งานที่กำลังกรอก';draft.expire();
+await assert.rejects(draft.context.GlowLogin.request('/me/state'),error=>error.code==='session_expired');checks++;
+ok(!draft.run('GlowLogin.active()')&&draft.q('#app').innerHTML.includes('เซสชันหมดอายุแล้ว'));
+ok(!draft.q('#app').innerHTML.includes('HR ADMIN PORTAL')&&!draft.q('#app').innerHTML.includes('ประวัติการประเมิน'));
+const savedDraft=JSON.parse(draft.storage.get('cubic-connect-prototype-v2:employee:rec-self')).drafts['rec-project'];
+ok(savedDraft.context==='งานที่กำลังกรอก'&&savedDraft.scores.join(',')==='4,4,5');
+await draft.login();await tick();draft.run("go('rate')");await tick();draft.run("start('rec-project')");ok(draft.run('form.context')==='งานที่กำลังกรอก');
+const denied=fixture('score-unauthorized');await denied.login();await tick();ok(!denied.run('GlowLogin.active()')&&denied.q('#app').innerHTML.includes('เซสชันหมดอายุแล้ว'));
+
+// Rendered greetings follow Bangkok time even when the host clock uses UTC.
+for(const [iso,text] of [
+ ['2026-11-04T17:00:00Z','ยังไม่นอนอีกเหรอ'],['2026-11-04T22:00:00Z','อรุณสวัสดิ์'],
+ ['2026-11-05T04:00:00Z','สวัสดีตอนเที่ยง'],['2026-11-05T07:00:00Z','สวัสดีตอนบ่าย'],
+ ['2026-11-05T10:00:00Z','สวัสดีตอนเย็น'],['2026-11-05T11:00:00Z','ได้เวลาเลิกงานแล้ว กลับบ้านกัน'],
+ ['2026-11-05T13:00:00Z','วันนี้เหนื่อยไหม'],['2026-11-05T16:00:00Z','ยังไม่นอนอีกเหรอ']
+]){const g=fixture();g.setTime(iso);await g.login();await tick();ok(g.q('#app').innerHTML.includes(text+' ผู้ทดสอบ'));}
+const greetingRefresh=fixture();greetingRefresh.setTime('2026-11-05T10:59:00Z');await greetingRefresh.login();await tick();
+greetingRefresh.setTime('2026-11-05T11:01:00Z');greetingRefresh.run("document.visibilityState='visible';refreshScoresWhenVisible()");await tick();ok(greetingRefresh.q('#app').innerHTML.includes('ได้เวลาเลิกงานแล้ว กลับบ้านกัน ผู้ทดสอบ'));
+const escapedGreeting=fixture('nickname-escape');await escapedGreeting.login();await tick();ok(escapedGreeting.q('#app').innerHTML.includes('&lt;img')&&!escapedGreeting.q('#app').innerHTML.includes('<img src=x'));
 console.log(`Directory and scores UI: ${checks} checks passed with synthetic responses; no live employee data used.`);
 

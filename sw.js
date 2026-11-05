@@ -5,6 +5,6 @@ self.addEventListener('activate',e=>e.waitUntil((async()=>{for(const k of await 
 self.addEventListener('fetch',e=>{
  const u=new URL(e.request.url);
  if(e.request.method!=='GET'||u.origin!==self.location.origin||e.request.mode==='navigate')return;
- if(!/^\/(assets\/[^/]+\.(gif|png)|style\.css|app\.js|logic\.js|install\.js|login\.js|live-scores\.js)$/.test(u.pathname.replace(new URL(self.registration.scope).pathname,'/')))return;
+ if(!/^\/(assets\/[^/]+\.(gif|png|webp)|style\.css|app\.js|logic\.js|install\.js|login\.js|live-scores\.js)$/.test(u.pathname.replace(new URL(self.registration.scope).pathname,'/')))return;
  e.respondWith((async()=>{const c=await caches.open(CACHE);try{const response=await fetch(e.request,{cache:'no-cache'});const type=response.headers.get('content-type')||'';if(response.ok&&!response.redirected&&!type.includes('text/html'))await c.put(e.request,response.clone());return response;}catch(err){const found=await c.match(e.request);if(found)return found;throw err;}})());
 });
