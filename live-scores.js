@@ -6,11 +6,14 @@
  const emit=()=>hooks.render?.();
  const numeric=v=>v===null||(typeof v==='number'&&Number.isFinite(v)&&v>=1&&v<=5);
  const validSummary=r=>r&&numeric(r.overall)&&Array.isArray(r.dims)&&r.dims.length===3&&r.dims.every(d=>numeric(d.mean));
- const validHistory=h=>h&&typeof h.target==='string'&&typeof h.name==='string'&&typeof h.department==='string'&&/^20\d{2}-(0[1-9]|1[0-2])$/.test(h.round)&&Number.isFinite(Date.parse(h.created));
+ const validHistoryAnswers=answers=>Array.isArray(answers)&&answers.length===3&&new Set(answers.map(a=>a.dimension)).size===3&&answers.every(a=>['ความเร็ว','ความถูกต้อง','การสื่อสาร'].includes(a.dimension)&&Number.isInteger(a.score)&&a.score>=1&&a.score<=5&&typeof a.reason==='string');
+ const validHistory=h=>h&&typeof h.target==='string'&&typeof h.name==='string'&&typeof h.department==='string'&&/^20\d{2}-(0[1-9]|1[0-2])$/.test(h.round)&&Number.isFinite(Date.parse(h.created))&&(h.answers===undefined||validHistoryAnswers(h.answers))&&(h.context===undefined||typeof h.context==='string');
  const validFeedback=f=>f&&/^20\d{2}-(0[1-9]|1[0-2])$/.test(f.round)&&Number.isFinite(Date.parse(f.created))&&Array.isArray(f.answers)&&f.answers.length>0&&f.answers.length<=3&&new Set(f.answers.map(a=>a.dimension)).size===f.answers.length&&f.answers.every(a=>['ความเร็ว','ความถูกต้อง','การสื่อสาร'].includes(a.dimension)&&Number.isInteger(a.score)&&a.score>=1&&a.score<=5);
  function history(){
   if(!active())return [];
-  return [...new Map([...(state.data?.history||[]),...confirmedHistory].map(h=>[h.round+'|'+h.target,h])).values()];
+  const merged=new Map();
+  for(const h of [...confirmedHistory,...(state.data?.history||[])]){const key=h.round+'|'+h.target,previous=merged.get(key);merged.set(key,{...previous,...h,answers:h.answers??previous?.answers,context:h.context??previous?.context});}
+  return [...merged.values()];
  }
  function reset(){generation++;sequence++;state={status:'idle',data:null,error:'',code:''};sending=false;refreshing=false;confirmedHistory=[];}
  function ready(){return state.status==='ready'&&!state.data.setup_required&&state.data.storage_private!==false;}
@@ -57,10 +60,13 @@
    const receipt=await root.GlowLogin.request('/assessments',{method:'POST',body});
    if(g!==generation||!active())throw Object.assign(Error('บัญชีที่ใช้งานเปลี่ยนแล้ว'),{code:'session_changed'});
    if(receipt.persisted!==true||receipt.answers!==3||typeof receipt.assessment_id!=='string')throw Error('ยังยืนยันการบันทึกครบ 3 ด้านไม่ได้ กรุณาลองส่งอีกครั้ง');
-   // Keep only server-confirmed history in this account's memory if the next
-   // read fails. Never manufacture a sent entry from a draft or request body.
+   // Keep details only after the persisted receipt confirms all three answers.
+   // Account memory bridges legacy receipts; Base remains the source for later sessions.
    const entry=receipt.history_entry;
-   if(validHistory(entry)&&entry.target===body.target_id&&entry.round===body.round)confirmedHistory.push(entry);
+   if(validHistory(entry)&&entry.target===body.target_id&&entry.round===body.round){
+    const answers=['ความเร็ว','ความถูกต้อง','การสื่อสาร'].map((dimension,i)=>({dimension,score:body.scores?.[i],reason:String(body.reasons?.[i]||'').trim()}));
+    confirmedHistory.push({...entry,...(!entry.answers&&validHistoryAnswers(answers)?{answers,context:String(body.context||'').trim()}: {})});
+   }
    await load();return receipt;
   }catch(error){
    if(['score_setup_required','score_field_type','score_configuration_missing','score_storage_not_private','score_api_missing','configuration_missing','invalid_score_configuration'].includes(error.code))throw Object.assign(Error('ยังส่งไม่สำเร็จ กรุณาลองอีกครั้ง'),{code:error.code});

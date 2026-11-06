@@ -1,0 +1,55 @@
+{
+  "style": "Golden yellow five-point star office mascots, hand-painted gouache with crayon grain, business suit, waist-up portrait, both hands and props visible, genuinely transparent background, no letters or framing circle. Generated individually with the built-in image tool. Original transparent PNGs remain unchanged; these WebP assets are optimized for avatar display.",
+  "characters": [
+    {
+      "key": "hr",
+      "department": "HR",
+      "description": "Warm welcoming HR coordinator, coral pink buttoned blazer, holding a small cream clipboard with a tiny heart icon and offering an open friendly hand. Gentle closed crescent smiling eyes."
+    },
+    {
+      "key": "ba",
+      "department": "BA",
+      "description": "Thoughtful business analyst, lavender buttoned blazer, small round purple spectacles, holding a tablet showing a simple teal line graph with no words. Bright attentive eyes and confident small smile."
+    },
+    {
+      "key": "marketing",
+      "department": "MKT",
+      "description": "Creative marketing teammate, mint green buttoned blazer, holding a small coral megaphone, playful delighted smile, one little lavender idea sparkle close to head. No spectacles."
+    },
+    {
+      "key": "sales",
+      "department": "Sale",
+      "description": "Friendly sales consultant, apricot peach buttoned blazer over ivory shirt, carrying a small elegant dark navy garment shopping bag, other hand giving a welcoming wave. Cheerful wide smile."
+    },
+    {
+      "key": "operations",
+      "department": "OPL",
+      "description": "Dependable operations colleague, warm navy blue buttoned blazer, carrying a small neatly packed cream parcel with a coral ribbon. Calm upbeat smile and neat posture."
+    },
+    {
+      "key": "it",
+      "department": "IT",
+      "description": "Helpful IT teammate, powder blue buttoned blazer, holding a small open lavender laptop with a tiny gear icon on its lid, happy focused expression. No spectacles, no headset."
+    },
+    {
+      "key": "accounting",
+      "department": "บัญชี",
+      "description": "Careful accounting teammate, muted plum purple buttoned blazer, holding a small mint calculator with simple blank buttons and a cream ledger. Friendly bright eyes, pleased smile."
+    },
+    {
+      "key": "finance",
+      "department": "การเงิน",
+      "description": "Resourceful finance teammate, teal green buttoned blazer, holding a little cream coin purse with two round gold coins, warm confident grin. No text or currency symbols."
+    },
+    {
+      "key": "tailoring",
+      "department": "RTW",
+      "description": "Skilled suit tailoring colleague, ivory beige buttoned blazer with coral trim, a soft yellow measuring tape around shoulders and small coral fabric swatch in one hand. Warm smile, no sharp tools."
+    },
+    {
+      "key": "management",
+      "department": "ผู้บริหาร",
+      "description": "Encouraging team leader, dusty violet buttoned blazer over cream shirt, small golden compass brooch, holding a simple cream planning notebook and giving a supportive thumbs up. Joyful reassuring smile."
+    }
+  ]
+}

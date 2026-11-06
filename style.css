@@ -201,3 +201,27 @@ dialog{border:1px solid #eee2dc;border-radius:25px;background:#fffaf4;color:var(
 @keyframes colleague-conversation{0%,100%{transform:rotate(-1deg)}50%{transform:rotate(1deg) translateY(-2px)}}
 @media(max-width:600px){.collaborator-heading{gap:8px;min-height:80px}.collaborator-heading h2{font-size:20px}.colleague-chat{flex-basis:118px;width:118px;height:80px}}
 @media(prefers-reduced-motion:reduce){.colleague-chat{animation:none!important}}
+
+/* Month slicer and sender-owned assessment details. */
+.history-month-slicer{display:flex;flex-wrap:wrap;gap:9px;margin-top:10px}
+.history-month-slicer button{min-height:44px;padding:9px 16px;background:#fffefa;border:1px solid #dfd7e9;color:#756289;font-size:14px;font-weight:600}
+.history-month-slicer button[aria-pressed="true"]{background:#6757bd;border-color:#6757bd;color:#fff;box-shadow:0 3px 10px #6757bd18}
+.history-filter .field{margin-bottom:16px}
+.sent-history-entry{padding:20px 0;border-bottom:1px solid #e6dfeb}
+.sent-history-entry:last-child{padding-bottom:0;border-bottom:0}
+.sent-history-person{display:flex;align-items:center;gap:13px;margin-bottom:15px}
+.department-avatar{width:76px;height:76px;flex:0 0 76px;object-fit:contain;background:transparent;border:0;border-radius:0}
+.sent-history-name{flex:1;min-width:0}
+.sent-history-name h3{font-size:17px;color:#655184;margin:0 0 3px;overflow-wrap:anywhere}
+.sent-history-name p{font-size:12px;margin:0 0 3px;color:#84768e}
+.sent-history-person>.pill{align-self:flex-start;margin-top:12px;white-space:nowrap}
+.sent-history-context{font-size:13px;margin:0 0 12px;padding:10px 12px;background:#fffaf7;border-radius:10px;overflow-wrap:anywhere}
+.sent-history-context strong{display:block;color:#746486;font-size:12px}
+.sent-history-scores{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.sent-history-dimension{padding:12px 14px;border:1px solid #e8e0ef;border-radius:12px;background:#fffdfa}
+.sent-history-dimension>div{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.sent-history-dimension h4{margin:0;color:#655578;font-size:13px;font-weight:600}
+.sent-score{color:#a67728;white-space:nowrap;font-size:14px}
+.sent-history-reason{margin:8px 0 0;color:#7c7185;font-size:12px;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.7}
+.history-details-waiting{font-size:12px;margin:10px 0 0}
+@media(max-width:640px){.history-month-slicer{gap:7px}.history-month-slicer button{padding:8px 12px;font-size:13px}.department-avatar{width:66px;height:66px;flex-basis:66px}.sent-history-person{gap:9px;flex-wrap:wrap}.sent-history-name h3{font-size:16px}.sent-history-scores{grid-template-columns:1fr}.sent-history-dimension{padding:12px 14px}.sent-history-person>.pill{font-size:10px;padding:3px 7px}}

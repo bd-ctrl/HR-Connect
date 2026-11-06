@@ -429,7 +429,8 @@ async function submitAssessment(request,env,cfg) {
   return {ok:true,assessment_id:id,persisted:true,answers:3,created:saved.created,history_entry:historyEntry(saved)};
 }
 function historyEntry(a) {
-  return {target:a.target,name:a.name,department:a.department,round:a.round,created:a.created};
+  // Only the authenticated sender receives this projection via their own history/receipt.
+  return {target:a.target,name:a.name,department:a.department,round:a.round,created:a.created,context:a.context,answers:DIMENSIONS.map((dimension,i)=>({dimension,score:a.scores[i],reason:a.reasons[i]}))};
 }
 function visibleAnswer(a,i) {
   const status=textValue(a.rows[i].fields?.[sf('status')]);
@@ -503,7 +504,7 @@ export default {
     if (origin&&origin!==(env.ALLOWED_ORIGIN||'https://bd-ctrl.github.io')) return reply(request,env,{ok:false,error:'origin_not_allowed',message:'ไม่อนุญาตให้เรียกจากเว็บไซต์นี้'},403);
     if (request.method==='OPTIONS') return reply(request,env,null,204);
     try {
-      if (['/','/health'].includes(url.pathname)&&request.method==='GET') return reply(request,env,{ok:true,service:'CUBIC CONNECT API',version:'scores-v1',capabilities:['employees','assessments','results','hr-review','immediate-feedback','sent-history-receipt']});
+      if (['/','/health'].includes(url.pathname)&&request.method==='GET') return reply(request,env,{ok:true,service:'CUBIC CONNECT API',version:'scores-v1',capabilities:['employees','assessments','results','hr-review','immediate-feedback','sent-history-receipt','sent-history-details']});
       const methods={'/login':'POST','/employees':'GET','/me/state':'GET','/hr/state':'GET','/hr/setup':'POST','/assessments':'POST'};
       const review=url.pathname.match(/^\/hr\/reviews\/([\w-]{3,100})$/);
       const method=review?'POST':methods[url.pathname];

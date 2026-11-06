@@ -55,6 +55,9 @@ try{
  eq((await api('/me/state',{token:b})).data.feedback,[]);eq((await api('/me/state',{token:a})).data.history,[]);
  const save=await api('/assessments',{token:a,body:payload});eq(save.status,200);yes(save.data.persisted);eq(records.length,3);
  eq(save.data.history_entry.target,'recB');eq(save.data.history_entry.name,'ทดสอบB');eq(save.data.history_entry.round,payload.round);
+ eq(save.data.history_entry.context,payload.context);eq(save.data.history_entry.answers.map(a=>a.score),[4,5,4]);
+ eq((await api('/me/state',{token:a})).data.history[0].answers,save.data.history_entry.answers);
+ yes(!JSON.stringify(save.data.history_entry).includes('rater'));
  eq((await api('/assessments',{token:a,body:payload})).status,200);eq(records.length,3);
  eq((await api('/assessments',{token:a,body:{...payload,scores:[5,5,5]}})).status,409);eq(records.length,3);
  const before=await api('/me/state',{token:b});eq(before.data.summary.received,1);eq(before.data.summary.overall,null);eq(before.data.summary.state,'insufficient_data');
@@ -68,6 +71,8 @@ try{
  eq((await api('/assessments',{token:d,body:{...payload,scores:[2,5,4],reasons:['สถานการณ์สมมติ','','']}})).status,200);
  // All three answers, including the low score awaiting HR, already exist in Base before HR reads them.
  eq(records.length,9);eq(records.filter(r=>r.fields[F.status]==='รอ HR ตรวจสอบ').length,1);
+ const ownPending=(await api('/me/state',{token:d})).data.history[0];
+ eq(ownPending.answers.map(a=>a.score),[2,5,4]);eq(ownPending.answers[0].reason,'สถานการณ์สมมติ');
  const pending=await api('/me/state',{token:b});eq(pending.data.summary.received,3);eq(pending.data.summary.overall,null);eq(pending.data.summary.dims[1].mean,5);
  eq(pending.data.feedback.length,3);yes(pending.data.feedback.every(f=>f.answers.every(a=>a.score>=4)));
  const serialized=JSON.stringify(pending.data);yes(!serialized.includes('สถานการณ์สมมติ')&&!serialized.includes('recA')&&!serialized.includes('rater_id'));

@@ -18,10 +18,14 @@ function fixture(mode = 'success') {
     return elements.get(selector);
   };
   let clock = Date.now(), resolveDirectory, resolveSave, resolveHistory, historyReads=0, history=mode==='already-assessed'?[{target:'rec-project',name:'โครงการใหม่',department:'Project Co',round:'2026-10',created:'2026-10-29T08:00:00Z'}]:[],setupPrepared=false;
+  if(mode==='sent-details')history=[
+    {target:'rec-hr',name:'ผู้ร่วมงานสมมติ HR',department:'HR & Admin',round:'2026-10',created:'2026-10-29T08:00:00Z',context:'งานประสานสมมติ',answers:['ความเร็ว','ความถูกต้อง','การสื่อสาร'].map((dimension,i)=>({dimension,score:[3,4,5][i],reason:i===0?'<img src=x onerror="bad()">':''}))},
+    {target:'rec-project',name:'ผู้ร่วมงานสมมติ Project',department:'Project Co',round:'2026-09',created:'2026-09-29T08:00:00Z',context:'',answers:['ความเร็ว','ความถูกต้อง','การสื่อสาร'].map(dimension=>({dimension,score:4,reason:''}))}
+  ];
   const isHR=mode.startsWith('hr-');
   class TestDate extends Date {constructor(...args){super(...(args.length?args:[clock]));}static now(){return clock;}}
   const context = {
-    document:{querySelector:q,querySelectorAll:()=>[],addEventListener(){}},
+    document:{querySelector:q,querySelectorAll:selector=>selector==='[data-history-round]'?[...q('#app').innerHTML.matchAll(/data-history-round="([^"]+)"/g)].map(([,round])=>{const b=q('[data-history-round="'+round+'"]');b.dataset={historyRound:round};return b;}):[],addEventListener(){}},
     window:{scrollTo(){}},
     localStorage:{getItem:key=>storage.get(key)??null,setItem:(key,value)=>storage.set(key,value)},
     matchMedia:()=>({matches:true}),Date:TestDate,
@@ -294,7 +298,23 @@ ok(receiptHistory.run('savedDialog').includes('ดูประวัติกา
 receiptHistory.run("go('results')");
 ok(receiptHistory.q('#app').innerHTML.includes('ผู้ทดสอบรับ')&&receiptHistory.q('#app').innerHTML.includes('ส่งแล้ว')&&receiptHistory.q('#app').innerHTML.includes('history-details" open'));
 ok(!receiptHistory.q('#app').innerHTML.includes('simulated read failure'));
+ok(receiptHistory.run("Scores.history()[0].answers.map(a=>a.score).join(',')")==='4,5,4');
 receiptHistory.run('signOut()');
 ok(receiptHistory.run('Scores.history().length')===0);
+// Month buttons filter actual sent records and keep all three submitted dimensions visible.
+const sentDetails=fixture('sent-details');await sentDetails.login();await tick();sentDetails.run("go('results')");
+let historyHtml=sentDetails.q('#app').innerHTML;
+ok(historyHtml.includes('data-history-round="all" aria-pressed="true"')&&!historyHtml.includes('<select id="history-round"'));
+ok((historyHtml.match(/class="sent-history-entry"/g)||[]).length===2&&(historyHtml.match(/class="sent-history-dimension"/g)||[]).length===6);
+ok(historyHtml.includes('3 / 5')&&historyHtml.includes('4 / 5')&&historyHtml.includes('5 / 5'));
+ok(historyHtml.includes('assets/avatars/star-hr.webp')&&historyHtml.includes('assets/avatars/star-operations.webp')&&!historyHtml.includes('class="avatar"'));
+ok(historyHtml.includes('งานประสานสมมติ')&&historyHtml.includes('&lt;img src=x')&&!historyHtml.includes('<img src=x'));
+await sentDetails.q('[data-history-round="2026-09"]').onclick();historyHtml=sentDetails.q('#app').innerHTML;
+ok(historyHtml.includes('data-history-round="2026-09" aria-pressed="true"')&&!historyHtml.includes('ผู้ร่วมงานสมมติ HR')&&historyHtml.includes('ผู้ร่วมงานสมมติ Project'));
+ok((historyHtml.match(/class="sent-history-dimension"/g)||[]).length===3);
+await sentDetails.q('[data-history-round="all"]').onclick();ok(sentDetails.q('#app').innerHTML.includes('ผู้ร่วมงานสมมติ HR'));
+const oldHistory=fixture('already-assessed');await oldHistory.login();await tick();oldHistory.run("go('results')");
+ok(oldHistory.q('#app').innerHTML.includes('รายละเอียดคะแนนจะแสดงเมื่อพร้อม')&&!oldHistory.q('#app').innerHTML.includes(' / 5'));
+ok(!sentDetails.run('directoryNotice()').includes('รายชื่อจากทะเบียนพนักงาน'));
 console.log(`Directory and scores UI: ${checks} checks passed with synthetic responses; no live employee data used.`);
 
