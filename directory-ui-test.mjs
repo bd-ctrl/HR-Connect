@@ -17,7 +17,8 @@ function fixture(mode = 'success') {
     });
     return elements.get(selector);
   };
-  let clock = Date.now(), resolveDirectory, resolveSave, history=[];
+  let clock = Date.now(), resolveDirectory, resolveSave, history=[],setupPrepared=false;
+  const isHR=mode.startsWith('hr-');
   class TestDate extends Date {constructor(...args){super(...(args.length?args:[clock]));}static now(){return clock;}}
   const context = {
     document:{querySelector:q,querySelectorAll:()=>[],addEventListener(){}},
@@ -28,9 +29,11 @@ function fixture(mode = 'success') {
     fetch:async (url, options) => {
       calls.push({url,options});
       if(url.endsWith('/login'))return Response.json({
-        ok:true,employee:{id:'rec-self',nickname:mode==='nickname-escape'?'<img src=x onerror="bad()">':'ผู้ทดสอบ',department:'BA',role:'employee'},
+        ok:true,employee:{id:'rec-self',nickname:isHR?'ADMIN':mode==='nickname-escape'?'<img src=x onerror="bad()">':'ผู้ทดสอบ',department:isHR?'HR':'BA',role:isHR?'admin':'employee'},
         ...(mode==='no-session'?{}:{session_token:'test-session-token',expires_in:900})
       });
+      if(url.endsWith('/hr/state'))return Response.json({ok:true,round:'2026-10',policy:{version:'test',minimum_raters:3},reviews:[],storage_private:true,score_table_id:'tblScores',setup_required:mode==='hr-wrong-type'||!setupPrepared||mode==='hr-setup-stale',missing:setupPrepared&&mode!=='hr-setup-stale'?[]:['CC_รหัสผู้รับ'],invalid_fields:mode==='hr-wrong-type'?['คะแนนดาว']:[]});
+      if(url.endsWith('/hr/setup')){setupPrepared=true;return Response.json({ok:true,created:['CC_รหัสผู้รับ'],storage_private:true,ready:true});}
       if(url.endsWith('/me/state')){
         if(mode==='score-unauthorized')return new Response('Session expired',{status:401});
         if(mode==='api-missing')return Response.json({ok:false,error:'not_found'},{status:404});
@@ -176,6 +179,21 @@ for(const mode of ['score-setup-required','score-private','api-missing']){
  ok(!g.q('#app').innerHTML.includes('HR ต้องเตรียมคอลัมน์')&&!g.q('#app').innerHTML.includes('ลองโหลดคะแนนอีกครั้ง'));
  ok(!g.calls.some(call=>call.url.endsWith('/assessments')));
 }
+// HR sees the actual missing names; incompatible fields block preparation before mutation.
+const hrSetup=fixture('hr-setup-required');await hrSetup.login();await tick();hrSetup.run("go('admin')");
+ok(hrSetup.q('#app').innerHTML.includes('ตั้งค่าคะแนน'));
+ok(hrSetup.q('#app').innerHTML.includes('คอลัมน์ที่ยังขาด (1)')&&hrSetup.q('#app').innerHTML.includes('CC_รหัสผู้รับ'));
+ok(hrSetup.q('#app').innerHTML.includes('tblScores')&&hrSetup.q('#app').innerHTML.includes('id="setup-live-scores"'));
+await hrSetup.q('#setup-live-scores').handlers.click({currentTarget:hrSetup.q('#setup-live-scores')});
+ok(hrSetup.q('#app').innerHTML.includes('เชื่อมตารางคะแนนแล้ว')&&hrSetup.run('Scores.ready()'));
+ok(hrSetup.calls.filter(call=>call.url.endsWith('/hr/setup')).length===1);
+const wrongTypeUI=fixture('hr-wrong-type');await wrongTypeUI.login();await tick();wrongTypeUI.run("go('admin')");
+ok(wrongTypeUI.q('#app').innerHTML.includes('ชนิดข้อมูลไม่รองรับ')&&wrongTypeUI.q('#app').innerHTML.includes('คะแนนดาว'));
+ok(!wrongTypeUI.q('#app').innerHTML.includes('id="setup-live-scores"')&&!wrongTypeUI.run('Scores.ready()'));
+const staleSetup=fixture('hr-setup-stale');await staleSetup.login();await tick();staleSetup.run("go('admin')");
+await staleSetup.q('#setup-live-scores').handlers.click({currentTarget:staleSetup.q('#setup-live-scores')});
+ok(!staleSetup.run('Scores.ready()')&&staleSetup.q('#toast').textContent.includes('ยังตรวจยืนยัน'));
+
 const race=fixture('pending-save');await race.login();await tick();race.run("go('rate')");await tick();race.run("start('rec-hr');form.scores=[4,4,5];stage='review';showDialog=content=>{globalThis.savedDialog=content}");race.run('render()');
 const waiting=race.q('#submit-form').handlers.click();await tick();await race.q('#submit-form').handlers.click();
 ok(race.calls.filter(c=>c.url.endsWith('/assessments')).length===1);

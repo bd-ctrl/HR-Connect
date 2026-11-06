@@ -293,9 +293,14 @@ async function schema(env) {
   throw new APIError(502,'schema_too_large','ตารางคะแนนมีคอลัมน์เกินขอบเขต');
 }
 function missingFields(map) { return Object.values(SCORE_FIELDS).filter(([name])=>!map.has(name)).map(([name])=>name); }
+function invalidFields(map) { return Object.values(SCORE_FIELDS).filter(([name,,types])=>map.has(name)&&!types.includes(map.get(name).type)).map(([name])=>name); }
+function validateExistingFields(map) {
+  const invalid=invalidFields(map);
+  if (invalid.length) throw new APIError(503,'score_field_type','ชนิดข้อมูลของคอลัมน์ '+invalid.join(' · ')+' ไม่รองรับ กรุณาให้ผู้ดูแลตรวจสอบ ระบบยังไม่เปลี่ยนคอลัมน์หรือข้อมูลเดิม');
+}
 function validateSchema(map) {
-  if (missingFields(map).length) throw new APIError(503,'score_setup_required','HR ต้องเตรียมคอลัมน์ตารางคะแนนก่อนใช้งาน');
-  for (const [name,,types] of Object.values(SCORE_FIELDS)) if (!types.includes(map.get(name).type)) throw new APIError(503,'score_field_type','ชนิดคอลัมน์ '+name+' ไม่รองรับ กรุณาให้ HR ตรวจสอบ');
+  if (missingFields(map).length) throw new APIError(503,'score_setup_required','ระบบบันทึกคะแนนยังตั้งค่าไม่ครบ กรุณาติดต่อผู้ดูแลระบบ');
+  validateExistingFields(map);
 }
 function fieldValue(map, key, value) {
   const f = map.get(sf(key));
@@ -313,6 +318,8 @@ async function uuid(value) {
 async function raterKey(env,id) { return hash('CUBIC_RATER_V1|'+env.LARK_APP_TOKEN+'|'+id); }
 async function setupScores(request,env,cfg) {
   await actor(request,env,cfg,true); const sc=scoreConfig(env); const map=await schema(env); const created=[];
+  // Detect incompatible existing columns before creating anything.
+  validateExistingFields(map);
   // Add missing columns only; do not rename, delete, or change existing field types.
   for (const [name,type] of Object.values(SCORE_FIELDS)) if (!map.has(name)) {
     const u=new URL(recordURL(env,env.LARK_SCORE_TABLE_ID,'/fields')); u.searchParams.set('client_token',await uuid('field|'+env.LARK_APP_TOKEN+'|'+env.LARK_SCORE_TABLE_ID+'|'+name));
@@ -332,7 +339,9 @@ async function setupScores(request,env,cfg) {
     const options=f.property?.options || [], extra=values.filter(v=>!options.some(o=>o.name===v));
     if (extra.length) await baseCall(env,recordURL(env,env.LARK_SCORE_TABLE_ID,'/fields/'+encodeURIComponent(f.field_id)),'PUT',{field_name:f.field_name,type:f.type,property:{...f.property,options:[...options,...extra.map(name=>({name}))]}});
   }
-  return {ok:true,created,storage_private:sc.private,round:sc.round};
+  // Re-read the live schema instead of trusting only the field-create response.
+  validateSchema(await schema(env));
+  return {ok:true,created,storage_private:sc.private,round:sc.round,ready:sc.private};
 }
 async function scoreRows(env, conditions) {
   const rows=await searchRecords(env,Object.values(SCORE_FIELDS).map(([n])=>n),conditions,10000,env.LARK_SCORE_TABLE_ID);
@@ -445,12 +454,12 @@ async function employeeState(request,env,cfg) {
   return {ok:true,round:sc.round,round_state:sc.state,policy:{version:sc.policy,minimum_raters:sc.minimum},summary:summary(received,sc.round,sc.minimum),previous:summary(received,previousRound(sc.round),sc.minimum),history:sent.map(a=>({target:a.target,name:a.name,department:a.department,round:a.round,created:a.created})),notifications:Object.entries(notifications).map(([created,count])=>({created,count})).sort((a,b)=>b.created.localeCompare(a.created))};
 }
 async function hrState(request,env,cfg) {
-  await actor(request,env,cfg,true);const sc=scoreConfig(env),map=await schema(env),missing=missingFields(map);
-  if (missing.length||!sc.private) return {ok:true,setup_required:!!missing.length,missing,storage_private:sc.private,round:sc.round,policy:{version:sc.policy,minimum_raters:sc.minimum},reviews:[]};
+  await actor(request,env,cfg,true);const sc=scoreConfig(env),map=await schema(env),missing=missingFields(map),invalid=invalidFields(map);
+  if (missing.length||invalid.length||!sc.private) return {ok:true,setup_required:!!(missing.length||invalid.length),missing,invalid_fields:invalid,score_table_id:env.LARK_SCORE_TABLE_ID,storage_private:sc.private,round:sc.round,policy:{version:sc.policy,minimum_raters:sc.minimum},reviews:[]};
   validateSchema(map);
   const all=await groups(await scoreRows(env,[{field_name:sf('round'),operator:'is',value:[sc.round]}]));
   const reviews=all.flatMap(a=>a.rows.map((r,i)=>({record_id:r.record_id,name:a.name,department:a.department,dimension:DIMENSIONS[i],score:a.scores[i],reason:a.reasons[i],context:a.context,created:a.created,status:textValue(r.fields?.[sf('status')]),note:textValue(r.fields?.[sf('note')])})).filter(r=>r.score<=3));
-  return {ok:true,setup_required:false,storage_private:true,round:sc.round,round_state:sc.state,policy:{version:sc.policy,minimum_raters:sc.minimum},reviews};
+  return {ok:true,setup_required:false,missing:[],invalid_fields:[],score_table_id:env.LARK_SCORE_TABLE_ID,storage_private:true,round:sc.round,round_state:sc.state,policy:{version:sc.policy,minimum_raters:sc.minimum},reviews};
 }
 async function reviewScore(request,env,cfg,id) {
   const who=await actor(request,env,cfg,true),sc=scoreConfig(env);requirePrivate(sc);
@@ -503,3 +512,4 @@ export default {
     }
   }
 };
+

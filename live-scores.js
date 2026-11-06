@@ -46,7 +46,10 @@
   try{
    if(!ready())await load();
    if(g!==generation||!active())throw Object.assign(Error('บัญชีที่ใช้งานเปลี่ยนแล้ว'),{code:'session_changed'});
-   if(!ready())throw Error('ยังส่งการประเมินไม่ได้ กรุณาบันทึกร่างไว้แล้วลองใหม่ภายหลัง');
+   if(!ready()){
+    const setup=['score_setup_required','score_field_type','score_configuration_missing','score_storage_not_private','score_api_missing'].includes(state.code);
+    throw Object.assign(Error(setup?'ระบบบันทึกคะแนนยังตั้งค่าไม่ครบ กรุณาบันทึกร่างไว้ แล้วติดต่อผู้ดูแลระบบ':'เชื่อมต่อระบบคะแนนไม่สำเร็จ กรุณาบันทึกร่างไว้แล้วลองใหม่ภายหลัง'),{code:state.code||'score_unavailable'});
+   }
    const receipt=await root.GlowLogin.request('/assessments',{method:'POST',body});
    if(g!==generation||!active())throw Object.assign(Error('บัญชีที่ใช้งานเปลี่ยนแล้ว'),{code:'session_changed'});
    if(receipt.persisted!==true||receipt.answers!==3||typeof receipt.assessment_id!=='string')throw Error('ยังยืนยันการบันทึกครบ 3 ด้านไม่ได้ กรุณาลองส่งอีกครั้ง');
@@ -55,9 +58,9 @@
  }
  function setupNotice(){
   if(state.status!=='ready')return notice();
-  const d=state.data;let out='';
+  const d=state.data,missing=Array.isArray(d.missing)?d.missing:[],invalid=Array.isArray(d.invalid_fields)?d.invalid_fields:[];let out='';
   if(!d.storage_private)out+='<div class="error">ก่อนเก็บคะแนนจริง ให้จำกัดลิงก์ Base เป็นเฉพาะผู้มีสิทธิ์ แล้วตั้ง SCORE_STORAGE_PRIVATE เป็น true ใน Worker ระบบจะยังไม่รับผลประเมินจนกว่าจะตั้งค่านี้</div>';
-  if(d.setup_required)out+='<section class="card"><h2>เตรียมตารางคะแนน</h2><p class="muted">เพิ่มเฉพาะคอลัมน์ที่ขาด โดยเก็บคอลัมน์และข้อมูลเดิมไว้</p><p>'+e((d.missing||[]).join(' · '))+'</p><button class="primary" id="setup-live-scores" type="button">เตรียมตารางคะแนน</button></section>';
+  if(d.setup_required)out+='<section class="card"><h2>ตั้งค่าการบันทึกคะแนนครั้งแรก</h2><p class="muted">ผู้ดูแลทำครั้งเดียวเมื่อติดตั้งระบบ พนักงานเริ่มส่งได้เมื่อการตั้งค่าครบ</p>'+(d.score_table_id?'<p>ตารางที่เชื่อมอยู่: <code>'+e(d.score_table_id)+'</code></p>':'')+(missing.length?'<h3>คอลัมน์ที่ยังขาด ('+missing.length+')</h3><ul>'+missing.map(name=>'<li>'+e(name)+'</li>').join('')+'</ul>':'')+(invalid.length?'<div class="error"><p>คอลัมน์ที่มีอยู่แต่ชนิดข้อมูลไม่รองรับ</p><ul>'+invalid.map(name=>'<li>'+e(name)+'</li>').join('')+'</ul><p>ให้ผู้ดูแลเทียบกับตารางเดิมก่อนดำเนินการ ระบบจะยังไม่เพิ่มคอลัมน์หรือเปลี่ยนข้อมูล</p></div>':'<p class="muted">ปุ่มนี้เพิ่มเฉพาะคอลัมน์ที่ขาด เก็บคอลัมน์และข้อมูลเดิมไว้</p><button class="primary" id="setup-live-scores" type="button">เตรียมตารางคะแนน</button>')+'</section>';
   return out;
  }
  function home(ui){
@@ -93,7 +96,7 @@
   document.querySelectorAll('[data-score-reload]').forEach(b=>b.onclick=()=>{if(['session_expired','directory_session_missing'].includes(state.code))ui.signOut();else void load();});
   document.querySelector('#setup-live-scores')?.addEventListener('click',async event=>{
    const b=event.currentTarget;b.disabled=true;b.textContent='กำลังเตรียมคอลัมน์…';
-   try{await root.GlowLogin.request('/hr/setup',{method:'POST',body:{}});await load();ui.toast('เตรียมคอลัมน์ตารางคะแนนแล้ว');}catch(error){b.disabled=false;b.textContent='เตรียมตารางคะแนน';ui.toast(error.message);}
+   try{await root.GlowLogin.request('/hr/setup',{method:'POST',body:{}});await load();if(state.status!=='ready'||state.data.setup_required)throw Error(state.error||'ยังตรวจยืนยันคอลัมน์ตารางคะแนนไม่ได้ กรุณาตรวจการเชื่อมต่ออีกครั้ง');ui.toast('เตรียมคอลัมน์ตารางคะแนนแล้ว');}catch(error){b.disabled=false;b.textContent='เตรียมตารางคะแนน';ui.toast(error.message);}
   });
   document.querySelectorAll('[data-live-review]').forEach(b=>b.onclick=()=>{
    const id=b.dataset.liveReview,decision=b.dataset.decision,row=state.data?.reviews.find(r=>r.record_id===id);

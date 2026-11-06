@@ -3,7 +3,7 @@ import worker from './worker.mjs';
 const F={submission:'รหัสแบบประเมิน',round:'รอบประเมิน',name:'ผู้ถูกประเมิน',department:'แผนกผู้ถูกประเมิน',dimension:'หัวข้อประเมิน',score:'คะแนนดาว',reason:'เหตุผลประกอบ',status:'สถานะตรวจสอบ',note:'หมายเหตุ HR',reviewedAt:'วันที่ตรวจสอบ',target:'CC_รหัสผู้รับ',rater:'CC_รหัสผู้ประเมิน',context:'CC_โปรเจกต์',manifest:'CC_ข้อมูลยืนยัน',reviewer:'CC_รหัสผู้ตรวจสอบ',created:'วันที่ประเมิน'};
 const env={LARK_APP_ID:'unit-test-app',LARK_APP_SECRET:'unit-test-secret-not-real',LARK_APP_TOKEN:'unit-test-base',LARK_TABLE_ID:'tblEmployees',LARK_SCORE_TABLE_ID:'tblScores',SCORE_STORAGE_PRIVATE:'true',EVALUATION_ROUND:'2026-10'};
 const employees=[...['A','B','C','D'].map((key,i)=>({record_id:'rec'+key,fields:{เลขบัตรประชาชน:'111111111111'+i,ชื่อเล่น:'ทดสอบ'+key,แผนก:key==='B'?'HR':'BA',สถานะการเป็นพนักงาน:'พนักงาน',Role:'User'}})),{record_id:'recHR',fields:{เลขบัตรประชาชน:'0000912345678',ชื่อเล่น:'ADMIN',แผนก:'HR',สถานะการเป็นพนักงาน:'พนักงาน',Role:'Admin'}}];
-let fields=new Map(),records=[],tokens=new Map(),seq=0,failDimension='',omitCreatedFields=false;
+let fields=new Map(),records=[],tokens=new Map(),seq=0,failDimension='',omitCreatedFields=false,hideCreatedField=false;
 for(const [k,n] of Object.entries(F))fields.set(n,{field_id:'fld'+k,field_name:n,type:k==='score'?2:['created','reviewedAt'].includes(k)?5:1});
 const ok=data=>Response.json({code:0,data}),nativeFetch=globalThis.fetch;
 globalThis.fetch=async(input,options={})=>{
@@ -13,7 +13,7 @@ globalThis.fetch=async(input,options={})=>{
  const table=u.pathname.includes('/tblEmployees/')?'employee':'score';
  if(u.pathname.endsWith('/fields')){
   if(method==='GET')return ok({items:[...fields.values()],has_more:false});
-  const f={...b,field_id:'fld'+(++seq)};fields.set(f.field_name,f);return ok({field:f});
+  const f={...b,field_id:'fld'+(++seq)};if(hideCreatedField)hideCreatedField=false;else fields.set(f.field_name,f);return ok({field:f});
  }
  const id=u.pathname.endsWith('/records/search')?null:u.pathname.match(/\/records\/([^/]+)$/)?.[1];
  if(id){
@@ -59,6 +59,8 @@ try{
  eq((await api('/me/state?target=recA',{token:b})).status,400);eq((await api('/me/state',{token:a})).data.history.length,1);eq((await api('/me/state',{token:b})).data.history.length,0);
  omitCreatedFields=true;eq((await api('/assessments',{token:c,body:payload})).status,200);
  eq((await api('/assessments',{token:d,body:{...payload,scores:[2,5,4],reasons:['สถานการณ์สมมติ','','']}})).status,200);
+ // All three answers, including the low score awaiting HR, already exist in Base before HR reads them.
+ eq(records.length,9);eq(records.filter(r=>r.fields[F.status]==='รอ HR ตรวจสอบ').length,1);
  const pending=await api('/me/state',{token:b});eq(pending.data.summary.received,3);eq(pending.data.summary.overall,null);eq(pending.data.summary.dims[1].mean,5);
  const serialized=JSON.stringify(pending.data);yes(!serialized.includes('สถานการณ์สมมติ')&&!serialized.includes('recA')&&!serialized.includes('rater_id'));
  const q=await api('/hr/state',{token:hr});eq(q.status,200);eq(q.data.reviews.length,1);yes(!JSON.stringify(q.data).includes('CC_รหัสผู้ประเมิน'));
@@ -80,8 +82,23 @@ try{
  const dup=structuredClone(records[0]);dup.record_id='recDuplicate';records.push(dup);eq((await api('/me/state',{token:b})).data.summary.received,3);
  employees[0].fields.สถานะการเป็นพนักงาน='พ้นสภาพ';eq((await api('/me/state',{token:a})).status,403);employees[0].fields.สถานะการเป็นพนักงาน='พนักงาน';
  eq((await api('/me/state',{token:a.slice(0,-2)+'zz'})).status,401);
+ const rowsBeforeSetup=structuredClone(records);
  fields.delete(F.target);eq((await api('/me/state',{token:b})).status,503);
- eq((await api('/hr/setup',{token:a,body:{}})).status,403);
- const setup=await api('/hr/setup',{token:hr,body:{}});eq(setup.status,200);yes(setup.data.created.includes(F.target));
+ const diagnostics=(await api('/hr/state',{token:hr})).data;
+ eq(diagnostics.missing,[F.target]);eq(diagnostics.invalid_fields,[]);eq(diagnostics.score_table_id,env.LARK_SCORE_TABLE_ID);
+ fields.get(F.score).type=3;
+ const wrongType=(await api('/hr/state',{token:hr})).data;
+ eq(wrongType.invalid_fields,[F.score]);yes(wrongType.setup_required);
+ const fieldsBefore=fields.size;
+ eq((await api('/hr/setup',{token:a,body:{}})).status,403);eq(fields.size,fieldsBefore);
+ const blockedSetup=await api('/hr/setup',{token:hr,body:{}});
+ eq(blockedSetup.status,503);eq(blockedSetup.data.error,'score_field_type');yes(blockedSetup.data.message.includes(F.score));eq(fields.size,fieldsBefore);
+ fields.get(F.score).type=2;
+ hideCreatedField=true;
+ eq((await api('/hr/setup',{token:hr,body:{}})).status,503);yes(!fields.has(F.target));
+ const setup=await api('/hr/setup',{token:hr,body:{}});eq(setup.status,200);yes(setup.data.created.includes(F.target));yes(setup.data.ready);
+ const ready=(await api('/hr/state',{token:hr})).data;eq(ready.setup_required,false);eq(ready.invalid_fields,[]);
+ eq((await api('/hr/setup',{token:hr,body:{}})).data.created,[]);eq(records,rowsBeforeSetup);
  console.log(`Worker scores: ${checks} checks passed with synthetic Base responses; no live data written.`);
 }finally{globalThis.fetch=nativeFetch;}
+
