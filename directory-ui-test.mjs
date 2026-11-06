@@ -47,6 +47,7 @@ function fixture(mode = 'success') {
         assert.ok(!('national_id' in body)&&!('rater' in body));
         if(mode==='pending-save')await new Promise(resolve=>{resolveSave=resolve;});
         if(mode==='save-error')return Response.json({ok:false,error:'save_unconfirmed',message:'ยังยืนยันการบันทึกไม่ได้'},{status:502});
+        if(mode==='save-setup-required')return Response.json({ok:false,error:'score_setup_required',message:'ระบบบันทึกคะแนนยังตั้งค่าไม่ครบ กรุณาติดต่อผู้ดูแลระบบ'},{status:503});
         if(mode==='invalid-receipt')return Response.json({ok:true});
         history.push({target:body.target_id,name:'ผู้ทดสอบรับ',department:'HR & Admin',round:body.round,created:new Date().toISOString()});
         return Response.json({ok:true,persisted:true,answers:3,assessment_id:'test-assessment'});
@@ -159,7 +160,9 @@ for(const mode of ['save-error','invalid-receipt']){
  ok(g.q('#app').innerHTML.includes('ยังยืนยัน'));
 }
 const noApi=fixture('api-missing');await noApi.login();await tick();
-ok(noApi.run('Scores.status()')==='error');ok(noApi.q('#app').innerHTML.includes('ระบบประเมินยังไม่พร้อมใช้งาน'));
+ok(noApi.run('Scores.status()')==='error');ok(noApi.q('#app').innerHTML.includes('รอแสดงผลประเมิน'));
+ok(!noApi.q('#app').innerHTML.includes('ยังโหลดคะแนนไม่ได้')&&!noApi.q('#app').innerHTML.includes('โหลดคะแนนล่าสุด'));
+ok(!noApi.q('#app').innerHTML.includes('ยังไม่ได้รับการประเมิน'));
 for(const mode of ['score-setup-required','score-private','api-missing']){
  const g=fixture(mode);await g.login();await tick();g.run("go('rate')");await tick();
  ok(g.run("directory.status==='ready'&&!Scores.ready()"));
@@ -175,10 +178,20 @@ for(const mode of ['score-setup-required','score-private','api-missing']){
  await g.q('#begin-person').handlers.click();ok(g.run('form.target')==='rec-project');
  g.run("form.scores=[4,4,5];stage='review';render()");
  await g.q('#submit-form').handlers.click();
- ok(g.run('form.target')==='rec-project'&&g.q('#app').innerHTML.includes('กรุณาบันทึกร่างไว้'));
+ ok(g.run('form.target')==='rec-project'&&g.q('#app').innerHTML.includes('ยังส่งไม่สำเร็จ กรุณาลองอีกครั้ง'));
+ ok(!g.q('#app').innerHTML.includes('ตั้งค่าไม่ครบ')&&!g.q('#app').innerHTML.includes('ติดต่อผู้ดูแลระบบ'));
+ ok(g.run("db.drafts['rec-project'].scores.join(',')")==='4,4,5');
  ok(!g.q('#app').innerHTML.includes('HR ต้องเตรียมคอลัมน์')&&!g.q('#app').innerHTML.includes('ลองโหลดคะแนนอีกครั้ง'));
  ok(!g.calls.some(call=>call.url.endsWith('/assessments')));
 }
+// A schema failure that arrives only after POST also stays out of employee copy and saves the draft.
+const lateSetup=fixture('save-setup-required');await lateSetup.login();await tick();lateSetup.run("go('rate')");await tick();lateSetup.run("start('rec-project');form.scores=[5,5,5];stage='review';render()");
+await lateSetup.q('#submit-form').handlers.click();
+ok(lateSetup.q('#app').innerHTML.includes('ยังส่งไม่สำเร็จ กรุณาลองอีกครั้ง'));
+ok(!lateSetup.q('#app').innerHTML.includes('ตั้งค่าไม่ครบ')&&!lateSetup.q('#app').innerHTML.includes('ติดต่อผู้ดูแลระบบ'));
+ok(lateSetup.run("db.drafts['rec-project'].scores.join(',')")==='5,5,5');
+ok(lateSetup.run('Scores.history().length')===0&&lateSetup.run('form.target')==='rec-project');
+
 // HR sees the actual missing names; incompatible fields block preparation before mutation.
 const hrSetup=fixture('hr-setup-required');await hrSetup.login();await tick();hrSetup.run("go('admin')");
 ok(hrSetup.q('#app').innerHTML.includes('ตั้งค่าคะแนน'));

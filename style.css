@@ -117,6 +117,17 @@
  .score-home-card-featured>.row .mascot-aura{width:185px;height:185px;flex-basis:185px}
 }
 
+/* A smiling coworker star holds the assessment card edge. */
+.assessment-card{position:relative;overflow:visible}
+.assessment-person{display:flex;align-items:center;justify-content:space-between;gap:18px;min-height:92px}
+.assessment-person>div{min-width:0}
+.assessment-person h2{color:#267a7d;margin-bottom:8px}
+.assessment-peek{display:block;width:132px;flex:0 0 132px;pointer-events:none;user-select:none;line-height:0}
+.assessment-peek img{display:block;width:100%;height:auto;object-fit:contain;filter:drop-shadow(0 6px 9px #795f5510)}
+@media(min-width:1360px){.assessment-peek{position:absolute;top:148px;right:-170px;width:190px}.assessment-person{min-height:92px}}
+@media(min-width:1500px){.assessment-peek{right:-255px;width:280px}}
+@media(max-width:640px){.assessment-person{gap:10px;min-height:150px}.assessment-peek{width:112px;flex-basis:112px}}
+
 /* Explicit score-card mascot sizing; keep proportional across viewport widths. */
 .score-home-card-featured .score-home-mascot{width:200px!important;height:200px!important;flex:0 0 200px!important}
 .score-home-card-featured .score-home-mascot img{width:100%!important;height:100%!important;object-fit:contain}
