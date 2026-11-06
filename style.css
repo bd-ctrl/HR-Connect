@@ -82,7 +82,20 @@
 .history-summary-empty h2{margin-bottom:6px;color:#65518e}
 @media(max-width:640px){.history-summary-heading{align-items:flex-start}.history-summary-total{flex-basis:72px;width:72px;height:72px;border-radius:22px}.history-summary-total strong{font-size:27px}.history-summary-stats{gap:8px}.history-summary-stats>div{padding:11px}.history-chart{height:170px;padding-left:8px;padding-right:8px;gap:6px}.history-bar-track{height:100px;width:min(34px,75%)}.history-bar-label{font-size:10px}}
 
-/* Make the employee's average score the primary focal point on the home page. */
+.received-feedback{margin-bottom:20px}
+.received-feedback>.row{align-items:flex-start;flex-wrap:wrap}
+.received-feedback h2{margin:0 0 8px}
+.received-feedback-list{display:grid;gap:12px;margin-top:16px}
+.received-feedback-item{padding:16px;border:1px solid #e9e0ef;border-radius:14px;background:#fffdfa}
+.received-feedback-item>.muted{margin-bottom:10px}
+.received-feedback-scores{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.received-feedback-scores>div{display:flex;flex-direction:column;gap:5px;font-size:13px}
+.received-feedback-scores strong{color:#67509e;font-size:19px;white-space:nowrap}
+.received-feedback-scores strong span{color:#d79f40}
+.feedback-empty{color:var(--muted);font-size:13px;margin:6px 0 0}
+@media(max-width:480px){.received-feedback-item{padding:12px}.received-feedback-scores{gap:8px}.received-feedback-scores>div{font-size:11px}.received-feedback-scores strong{font-size:17px}}
+
+/* Keep the average distinct from the immediately visible received scores. */
 .employee-home-layout{display:grid;grid-template-columns:1fr;gap:20px}
 .employee-home-support{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:20px;align-items:stretch}
 .score-home-card-featured{padding:32px 36px;background:linear-gradient(120deg,#fffdf9 0%,#f8f0fb 55%,#f0f8f5 100%);border-color:#ffffff;box-shadow:0 12px 36px #65518e12}

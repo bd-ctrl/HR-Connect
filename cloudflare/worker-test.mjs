@@ -46,23 +46,32 @@ async function login(key){const id=employees.find(e=>e.record_id===key).fields.�
 const payload={target_id:'recB',round:'2026-10',scores:[4,5,4],reasons:['','',''],context:'ทดสอบข้อมูลสมมติ'};
 try{
  eq((await api('/health')).data.version,'scores-v1');eq((await api('/me/state')).status,401);
- const a=await login('recA'),b=await login('recB'),c=await login('recC'),d=await login('recD'),hr=await login('recHR');
+ const a=await login('recA'),b=await login('recB'),c=await login('recC'),d=await login('recD');
  eq((await api('/hr/state',{token:a})).status,403);
  eq((await api('/me/state',{token:a,settings:{...env,SCORE_STORAGE_PRIVATE:'false'}})).status,503);
  for(const [body,status] of [[{...payload,target_id:'recA'},403],[{...payload,scores:[3,4,4]},400],[{...payload,rater:'recC'},400],[{...payload,scores:[6,4,4]},400],[{...payload,round:'2026-09'},409]])eq((await api('/assessments',{token:a,body})).status,status);
  eq(records.length,0);failDimension='ความถูกต้อง';
  eq((await api('/assessments',{token:a,body:payload})).status,502);eq(records.length,1);eq((await api('/me/state',{token:b})).data.summary.received,0);
+ eq((await api('/me/state',{token:b})).data.feedback,[]);eq((await api('/me/state',{token:a})).data.history,[]);
  const save=await api('/assessments',{token:a,body:payload});eq(save.status,200);yes(save.data.persisted);eq(records.length,3);
+ eq(save.data.history_entry.target,'recB');eq(save.data.history_entry.name,'ทดสอบB');eq(save.data.history_entry.round,payload.round);
  eq((await api('/assessments',{token:a,body:payload})).status,200);eq(records.length,3);
  eq((await api('/assessments',{token:a,body:{...payload,scores:[5,5,5]}})).status,409);eq(records.length,3);
  const before=await api('/me/state',{token:b});eq(before.data.summary.received,1);eq(before.data.summary.overall,null);eq(before.data.summary.state,'insufficient_data');
+ // No HR account has signed in. One complete assessment is immediately visible
+ // while the separately labelled average still needs three distinct raters.
+ eq(before.data.feedback.length,1);eq(before.data.feedback[0].answers.map(a=>a.score),[4,5,4]);
+ eq(Object.keys(before.data.feedback[0]).sort(),['answers','created','round']);
+ yes(!JSON.stringify(before.data.feedback).includes('recA')&&!JSON.stringify(before.data.feedback).includes('ทดสอบA'));
  eq((await api('/me/state?target=recA',{token:b})).status,400);eq((await api('/me/state',{token:a})).data.history.length,1);eq((await api('/me/state',{token:b})).data.history.length,0);
  omitCreatedFields=true;eq((await api('/assessments',{token:c,body:payload})).status,200);
  eq((await api('/assessments',{token:d,body:{...payload,scores:[2,5,4],reasons:['สถานการณ์สมมติ','','']}})).status,200);
  // All three answers, including the low score awaiting HR, already exist in Base before HR reads them.
  eq(records.length,9);eq(records.filter(r=>r.fields[F.status]==='รอ HR ตรวจสอบ').length,1);
  const pending=await api('/me/state',{token:b});eq(pending.data.summary.received,3);eq(pending.data.summary.overall,null);eq(pending.data.summary.dims[1].mean,5);
+ eq(pending.data.feedback.length,3);yes(pending.data.feedback.every(f=>f.answers.every(a=>a.score>=4)));
  const serialized=JSON.stringify(pending.data);yes(!serialized.includes('สถานการณ์สมมติ')&&!serialized.includes('recA')&&!serialized.includes('rater_id'));
+ const hr=await login('recHR');
  const q=await api('/hr/state',{token:hr});eq(q.status,200);eq(q.data.reviews.length,1);yes(!JSON.stringify(q.data).includes('CC_รหัสผู้ประเมิน'));
  const low=q.data.reviews[0].record_id;
  eq((await api('/hr/reviews/'+low,{token:hr,body:{decision:'approved',note:'ห้ามแก้รอบปิด'},settings:{...env,ROUND_STATE:'released'}})).status,409);
@@ -71,6 +80,7 @@ try{
  eq((await api('/hr/reviews/'+low,{token:hr,body:{decision:'approved',note:'ผลทดสอบ'}})).status,200);
  eq((await api('/hr/reviews/'+low,{token:hr,body:{decision:'rejected',note:'แก้ผล'}})).status,409);
  const after=await api('/me/state',{token:b});eq(after.data.summary.state,'ready');yes(Math.abs(after.data.summary.overall-37/9)<1e-10);
+ yes(after.data.feedback.some(f=>f.answers.some(a=>a.score===2)));yes(!JSON.stringify(after.data.feedback).includes('ผลทดสอบ'));
  const other={...payload,target_id:'recC',scores:[2,5,4],reasons:['เหตุการณ์สมมติอีกกรณี','','']};
  eq((await api('/assessments',{token:a,body:other,settings:{...env,MIN_RATERS:'1'}})).status,200);
  const rejectCase=(await api('/hr/state',{token:hr})).data.reviews.find(r=>r.status==='รอ HR ตรวจสอบ');
@@ -78,8 +88,14 @@ try{
  eq((await api('/hr/reviews/'+rejectCase.record_id,{token:hr,body:{decision:'rejected',note:'ไม่ใช้คะแนนด้านนี้ในการคำนวณ'}})).status,200);
  const rejected=(await api('/me/state',{token:c,settings:{...env,MIN_RATERS:'1'}})).data.summary;
  eq(rejected.overall,null);eq(rejected.dims[1].mean,5);
+ yes((await api('/me/state',{token:c})).data.feedback.every(f=>f.answers.every(a=>a.score>=4)));
+ const allLow={...payload,target_id:'recD',scores:[2,3,1],reasons:['เหตุผลจำลองหนึ่ง','เหตุผลจำลองสอง','เหตุผลจำลองสาม']};
+ eq((await api('/assessments',{token:b,body:allLow})).status,200);
+ const waitingLow=(await api('/me/state',{token:d})).data;
+ eq(waitingLow.feedback,[]);eq(waitingLow.notifications,[]);
+ yes((await api('/me/state',{token:b})).data.history.some(h=>h.target==='recD'));
 
- const dup=structuredClone(records[0]);dup.record_id='recDuplicate';records.push(dup);eq((await api('/me/state',{token:b})).data.summary.received,3);
+ const dup=structuredClone(records[0]);dup.record_id='recDuplicate';records.push(dup);eq((await api('/me/state',{token:b})).data.summary.received,3);eq((await api('/me/state',{token:b})).data.feedback.length,3);
  employees[0].fields.สถานะการเป็นพนักงาน='พ้นสภาพ';eq((await api('/me/state',{token:a})).status,403);employees[0].fields.สถานะการเป็นพนักงาน='พนักงาน';
  eq((await api('/me/state',{token:a.slice(0,-2)+'zz'})).status,401);
  const rowsBeforeSetup=structuredClone(records);

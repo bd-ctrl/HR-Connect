@@ -1,12 +1,18 @@
 // Live score data only. Drafts remain local; a successful submission requires a Base receipt.
 (function(root){
- let state={status:'idle',data:null,error:'',code:''},generation=0,sequence=0,sending=false,hooks={};
+ let state={status:'idle',data:null,error:'',code:''},generation=0,sequence=0,sending=false,refreshing=false,confirmedHistory=[],hooks={};
  const e=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
  const active=()=>root.GlowLogin.active(),admin=()=>root.GlowLogin.profile()?.role==='admin';
  const emit=()=>hooks.render?.();
  const numeric=v=>v===null||(typeof v==='number'&&Number.isFinite(v)&&v>=1&&v<=5);
  const validSummary=r=>r&&numeric(r.overall)&&Array.isArray(r.dims)&&r.dims.length===3&&r.dims.every(d=>numeric(d.mean));
- function reset(){generation++;sequence++;state={status:'idle',data:null,error:'',code:''};sending=false;}
+ const validHistory=h=>h&&typeof h.target==='string'&&typeof h.name==='string'&&typeof h.department==='string'&&/^20\d{2}-(0[1-9]|1[0-2])$/.test(h.round)&&Number.isFinite(Date.parse(h.created));
+ const validFeedback=f=>f&&/^20\d{2}-(0[1-9]|1[0-2])$/.test(f.round)&&Number.isFinite(Date.parse(f.created))&&Array.isArray(f.answers)&&f.answers.length>0&&f.answers.length<=3&&new Set(f.answers.map(a=>a.dimension)).size===f.answers.length&&f.answers.every(a=>['ความเร็ว','ความถูกต้อง','การสื่อสาร'].includes(a.dimension)&&Number.isInteger(a.score)&&a.score>=1&&a.score<=5);
+ function history(){
+  if(!active())return [];
+  return [...new Map([...(state.data?.history||[]),...confirmedHistory].map(h=>[h.round+'|'+h.target,h])).values()];
+ }
+ function reset(){generation++;sequence++;state={status:'idle',data:null,error:'',code:''};sending=false;refreshing=false;confirmedHistory=[];}
  function ready(){return state.status==='ready'&&!state.data.setup_required&&state.data.storage_private!==false;}
  function round(){return state.data?.round||'2026-10';}
  function dateLabel(value){return new Date(value).toLocaleDateString('th-TH',{timeZone:'Asia/Bangkok',day:'numeric',month:'short',year:'numeric'});}
@@ -17,18 +23,20 @@
   const nickname=String(root.GlowLogin.profile()?.nickname||'').trim();
   return e(text+(nickname?' '+nickname:''));
  }
- async function load(){
-  if(!active())return;
-  const g=generation,s=++sequence;state={...state,status:'loading',error:'',code:''};emit();
+ async function load({quiet=false}={}){
+  if(!active()||(quiet&&refreshing))return;
+  const g=generation,s=++sequence,background=quiet&&state.status==='ready';refreshing=true;
+  if(!background){state={...state,status:'loading',error:'',code:''};emit();}
   try{
    const data=await root.GlowLogin.request(admin()?'/hr/state':'/me/state');
    if(g!==generation||s!==sequence||!active())return;
    if(typeof data.round!=='string'||!/^20\d{2}-(0[1-9]|1[0-2])$/.test(data.round)||!data.policy||!Number.isInteger(data.policy.minimum_raters))throw Error('ข้อมูลรอบประเมินไม่ถูกต้อง');
    if(admin()){
     if(!Array.isArray(data.reviews)||data.reviews.some(r=>typeof r.record_id!=='string'||!Number.isInteger(r.score)||r.score<1||r.score>3||typeof r.reason!=='string')||typeof data.setup_required!=='boolean'||typeof data.storage_private!=='boolean')throw Error('ข้อมูล HR ไม่ถูกต้อง');
-   }else if(!Array.isArray(data.history)||data.history.some(h=>typeof h.target!=='string'||typeof h.name!=='string'||typeof h.department!=='string'||!Number.isFinite(Date.parse(h.created)))||!Array.isArray(data.notifications)||data.notifications.some(n=>!Number.isInteger(n.count)||n.count<1||!Number.isFinite(Date.parse(n.created)))||!validSummary(data.summary)||!validSummary(data.previous)||!Number.isInteger(data.summary.received)||data.summary.received<0)throw Error('ข้อมูลคะแนนไม่ถูกต้อง');
+   }else if(!Array.isArray(data.history)||data.history.some(h=>!validHistory(h))||(data.feedback!==undefined&&(!Array.isArray(data.feedback)||data.feedback.some(f=>!validFeedback(f))))||!Array.isArray(data.notifications)||data.notifications.some(n=>!Number.isInteger(n.count)||n.count<1||!Number.isFinite(Date.parse(n.created)))||!validSummary(data.summary)||!validSummary(data.previous)||!Number.isInteger(data.summary.received)||data.summary.received<0)throw Error('ข้อมูลคะแนนไม่ถูกต้อง');
    state={status:'ready',data,error:'',code:''};hooks.data?.(data);
-  }catch(error){if(g!==generation||s!==sequence||!active())return;state={...state,status:'error',error:error.message||'โหลดคะแนนไม่สำเร็จ',code:error.code||'score_error'};}
+  }catch(error){if(g!==generation||s!==sequence||!active())return;state={...state,status:background?'ready':'error',error:error.message||'โหลดคะแนนไม่สำเร็จ',code:error.code||'score_error'};}
+  finally{if(g===generation&&s===sequence)refreshing=false;}
   emit();
  }
  function notice(){
@@ -49,6 +57,10 @@
    const receipt=await root.GlowLogin.request('/assessments',{method:'POST',body});
    if(g!==generation||!active())throw Object.assign(Error('บัญชีที่ใช้งานเปลี่ยนแล้ว'),{code:'session_changed'});
    if(receipt.persisted!==true||receipt.answers!==3||typeof receipt.assessment_id!=='string')throw Error('ยังยืนยันการบันทึกครบ 3 ด้านไม่ได้ กรุณาลองส่งอีกครั้ง');
+   // Keep only server-confirmed history in this account's memory if the next
+   // read fails. Never manufacture a sent entry from a draft or request body.
+   const entry=receipt.history_entry;
+   if(validHistory(entry)&&entry.target===body.target_id&&entry.round===body.round)confirmedHistory.push(entry);
    await load();return receipt;
   }catch(error){
    if(['score_setup_required','score_field_type','score_configuration_missing','score_storage_not_private','score_api_missing','configuration_missing','invalid_score_configuration'].includes(error.code))throw Object.assign(Error('ยังส่งไม่สำเร็จ กรุณาลองอีกครั้ง'),{code:error.code});
@@ -62,6 +74,11 @@
   if(d.setup_required)out+='<section class="card"><h2>ตั้งค่าการบันทึกคะแนนครั้งแรก</h2><p class="muted">ผู้ดูแลทำครั้งเดียวเมื่อติดตั้งระบบ พนักงานเริ่มส่งได้เมื่อการตั้งค่าครบ</p>'+(d.score_table_id?'<p>ตารางที่เชื่อมอยู่: <code>'+e(d.score_table_id)+'</code></p>':'')+(missing.length?'<h3>คอลัมน์ที่ยังขาด ('+missing.length+')</h3><ul>'+missing.map(name=>'<li>'+e(name)+'</li>').join('')+'</ul>':'')+(invalid.length?'<div class="error"><p>คอลัมน์ที่มีอยู่แต่ชนิดข้อมูลไม่รองรับ</p><ul>'+invalid.map(name=>'<li>'+e(name)+'</li>').join('')+'</ul><p>ให้ผู้ดูแลเทียบกับตารางเดิมก่อนดำเนินการ ระบบจะยังไม่เพิ่มคอลัมน์หรือเปลี่ยนข้อมูล</p></div>':'<p class="muted">ปุ่มนี้เพิ่มเฉพาะคอลัมน์ที่ขาด เก็บคอลัมน์และข้อมูลเดิมไว้</p><button class="primary" id="setup-live-scores" type="button">เตรียมตารางคะแนน</button>')+'</section>';
   return out;
  }
+ function feedbackView(){
+  if(state.status!=='ready'||!Array.isArray(state.data?.feedback))return '';
+  const items=state.data.feedback.filter(f=>f.round===round());
+  return '<section class="card received-feedback"><div class="row"><h2>ฟีดแบ็กที่ได้รับ</h2><span class="pill">'+e(monthLabel(round()))+'</span></div><p class="muted">คะแนน 4–5 ดาวแสดงหลังบันทึกสำเร็จทันที · ไม่แสดงชื่อผู้ประเมิน</p>'+(items.length?'<div class="received-feedback-list">'+items.map(f=>'<article class="received-feedback-item"><p class="muted">'+e(dateLabel(f.created))+'</p><div class="received-feedback-scores">'+f.answers.map(a=>'<div><span>'+e(a.dimension)+'</span><strong><span aria-hidden="true">★</span> '+a.score+' / 5</strong></div>').join('')+'</div></article>').join('')+'</div>':'<p class="feedback-empty">เมื่อมีคะแนนที่แสดงได้ คุณจะเห็นรายการที่นี่</p>')+'</section>';
+ }
  function home(ui){
   if(admin())return hrHome(ui);
   const d=state.data,r=d?.summary,p=d?.previous,usable=state.status==='ready',score=usable?r.overall:null;
@@ -69,7 +86,7 @@
   const detail=!usable?'':r.state==='no_evaluations'?'เมื่อมีผลประเมินที่ผ่านเกณฑ์ คะแนนเฉลี่ยจะแสดงที่นี่':r.state==='insufficient_data'?'คะแนนแต่ละด้านต้องมีผู้ประเมินอย่างน้อย '+(r.minimum_raters||d.policy.minimum_raters)+' คน':'คะแนนที่ผ่านการตรวจสอบและครบเกณฑ์จะนำมาคำนวณ';
   const comparison=(label,value)=>'<div class="comparison-row"><div class="row"><span>'+e(label)+'</span><strong>'+(value===null?'—':Number(value).toFixed(1)+' / 5')+'</strong></div><div class="bar"><span style="width:'+(value===null?0:Number(value)/5*100)+'%"></span></div></div>';
   const delta=score!==null&&p?.overall!==null&&p?.overall!==undefined?score-p.overall:null;
-  return ui.head(greeting(),'ทุกความคิดเห็น ช่วยให้เราเติบโตไปด้วยกัน','',false)+'<div class="employee-home-layout"><section class="card score-home-card score-home-card-featured"><div class="row"><div><p class="eyebrow">คะแนนที่ผ่านเกณฑ์และการตรวจสอบ</p><h2>คะแนนเฉลี่ยของฉัน</h2></div>'+ui.mascot(score===null?3:Math.round(score)).replace('mascot-aura ','mascot-aura score-home-mascot ')+'</div>'+notice()+(score===null?'<div class="score-pending"><strong>'+e(empty)+'</strong><p class="muted">'+e(detail)+'</p></div>':'<div class="score-home-value">'+score.toFixed(1)+'<span> / 5</span></div><p class="muted">ค่าเฉลี่ยจากผู้ประเมินที่ไม่ระบุตัวตน</p>')+(usable&&r.received?ui.bars(r):'')+'</section><div class="employee-home-support"><section class="card hero"><div class="copy"><div class="eyebrow">CUBIC CONNECT · PEOPLE & CULTURE</div><h2><span class="hero-line-one">ฟังกันมากขึ้น</span><br><span class="hero-line-two">เข้าใจกันมากขึ้น</span></h2><p class="muted">ประเมินคนที่ได้ร่วมงานจริง<br>เลือกแผนก ผู้ร่วมงาน และโปรเจกต์ในขั้นตอนถัดไป</p><button class="primary" data-nav="rate" '+(d?.round_state&&d.round_state!=='open'?'disabled':'')+'>เริ่มประเมินผู้ร่วมงาน</button></div>'+ui.mascot(4,'mascot')+'</section><section class="card month-comparison"><div class="row"><h2>เทียบกับเดือนก่อน</h2><span class="pill">'+e(monthLabel(round()))+'</span></div><div class="comparison-chart">'+comparison(p?monthLabel(p.round):'เดือนก่อน',usable?p.overall:null)+comparison(monthLabel(round()),score)+'</div><p class="comparison-delta">'+(delta===null?'แสดงแนวโน้มเมื่อทั้งสองเดือนมีคะแนนครบเกณฑ์':delta>0?'เพิ่มขึ้น '+delta.toFixed(1)+' คะแนน':delta<0?'ลดลง '+Math.abs(delta).toFixed(1)+' คะแนน':'เท่ากับเดือนก่อน')+'</p></section></div></div>';
+  return ui.head(greeting(),'ทุกความคิดเห็น ช่วยให้เราเติบโตไปด้วยกัน','',false)+feedbackView()+'<div class="employee-home-layout"><section class="card score-home-card score-home-card-featured"><div class="row"><div><p class="eyebrow">คะแนนที่ผ่านเกณฑ์และการตรวจสอบ</p><h2>คะแนนเฉลี่ยของฉัน</h2></div>'+ui.mascot(score===null?3:Math.round(score)).replace('mascot-aura ','mascot-aura score-home-mascot ')+'</div>'+notice()+(score===null?'<div class="score-pending"><strong>'+e(empty)+'</strong><p class="muted">'+e(detail)+'</p></div>':'<div class="score-home-value">'+score.toFixed(1)+'<span> / 5</span></div><p class="muted">ค่าเฉลี่ยจากผู้ประเมินที่ไม่ระบุตัวตน</p>')+(usable&&r.received?ui.bars(r):'')+'</section><div class="employee-home-support"><section class="card hero"><div class="copy"><div class="eyebrow">CUBIC CONNECT · PEOPLE & CULTURE</div><h2><span class="hero-line-one">ฟังกันมากขึ้น</span><br><span class="hero-line-two">เข้าใจกันมากขึ้น</span></h2><p class="muted">ประเมินคนที่ได้ร่วมงานจริง<br>เลือกแผนก ผู้ร่วมงาน และโปรเจกต์ในขั้นตอนถัดไป</p><button class="primary" data-nav="rate" '+(d?.round_state&&d.round_state!=='open'?'disabled':'')+'>เริ่มประเมินผู้ร่วมงาน</button></div>'+ui.mascot(4,'mascot')+'</section><section class="card month-comparison"><div class="row"><h2>เทียบกับเดือนก่อน</h2><span class="pill">'+e(monthLabel(round()))+'</span></div><div class="comparison-chart">'+comparison(p?monthLabel(p.round):'เดือนก่อน',usable?p.overall:null)+comparison(monthLabel(round()),score)+'</div><p class="comparison-delta">'+(delta===null?'แสดงแนวโน้มเมื่อทั้งสองเดือนมีคะแนนครบเกณฑ์':delta>0?'เพิ่มขึ้น '+delta.toFixed(1)+' คะแนน':delta<0?'ลดลง '+Math.abs(delta).toFixed(1)+' คะแนน':'เท่ากับเดือนก่อน')+'</p></section></div></div>';
  }
  function hrHome(ui){
   const pending=(state.data?.reviews||[]).filter(r=>r.status==='รอ HR ตรวจสอบ').length;
@@ -110,5 +127,5 @@
    });
   });
  }
- root.CubicScores={configure:value=>{hooks=value;},start:()=>{reset();return load();},reset,load,ready,round,notice,submit,home,hrView,bind,openNotifications,status:()=>state.status,data:()=>state.data,sending:()=>sending,history:()=>state.status==='ready'?(state.data?.history||[]):[]};
+ root.CubicScores={configure:value=>{hooks=value;},start:()=>{reset();return load();},reset,load,ready,round,notice,submit,home,hrView,bind,openNotifications,status:()=>state.status,data:()=>state.data,sending:()=>sending,refreshing:()=>refreshing,history,historyAvailable:()=>Array.isArray(state.data?.history)||confirmedHistory.length>0};
 })(window);

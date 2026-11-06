@@ -35,11 +35,12 @@ function fixture(mode = 'success') {
       if(url.endsWith('/hr/state'))return Response.json({ok:true,round:'2026-10',policy:{version:'test',minimum_raters:3},reviews:[],storage_private:true,score_table_id:'tblScores',setup_required:mode==='hr-wrong-type'||!setupPrepared||mode==='hr-setup-stale',missing:setupPrepared&&mode!=='hr-setup-stale'?[]:['CC_รหัสผู้รับ'],invalid_fields:mode==='hr-wrong-type'?['คะแนนดาว']:[]});
       if(url.endsWith('/hr/setup')){setupPrepared=true;return Response.json({ok:true,created:['CC_รหัสผู้รับ'],storage_private:true,ready:true});}
       if(url.endsWith('/me/state')){
+        if(mode==='history-read-fails'&&history.length)return Response.json({ok:false,error:'lark_unavailable',message:'simulated read failure'},{status:502});
         if(mode==='score-unauthorized')return new Response('Session expired',{status:401});
         if(mode==='api-missing')return Response.json({ok:false,error:'not_found'},{status:404});
         if(mode==='score-setup-required')return Response.json({ok:false,error:'score_setup_required',message:'HR ต้องเตรียมคอลัมน์ตารางคะแนนก่อนใช้งาน'},{status:503});
         if(mode==='score-private')return Response.json({ok:false,error:'score_storage_not_private',message:'ระบบคะแนนยังไม่พร้อมใช้งาน กรุณาให้ HR ตรวจการจำกัดสิทธิ์ Base'},{status:503});
-        return Response.json({ok:true,round:'2026-10',round_state:mode==='closed-round'?'review':'open',policy:{version:'test',minimum_raters:3},summary:{round:'2026-10',received:0,state:'no_evaluations',overall:null,dims:[0,1,2].map(()=>({mean:null}))},previous:{round:'2026-09',overall:null,dims:[0,1,2].map(()=>({mean:null}))},history,notifications:[]});
+        return Response.json({ok:true,round:'2026-10',round_state:mode==='closed-round'?'review':'open',policy:{version:'test',minimum_raters:3},summary:{round:'2026-10',received:mode==='instant-feedback'?1:0,state:mode==='instant-feedback'?'insufficient_data':'no_evaluations',overall:null,dims:[0,1,2].map(()=>({mean:null}))},previous:{round:'2026-09',overall:null,dims:[0,1,2].map(()=>({mean:null}))},feedback:mode==='instant-feedback'?[{round:'2026-10',created:'2026-10-29T08:00:00Z',answers:[{dimension:'ความเร็ว',score:4},{dimension:'การสื่อสาร',score:5}]}]:[],history,notifications:[]});
       }
       if(url.endsWith('/assessments')){
         assert.equal(options.headers.Authorization,'Bearer test-session-token');
@@ -50,7 +51,7 @@ function fixture(mode = 'success') {
         if(mode==='save-setup-required')return Response.json({ok:false,error:'score_setup_required',message:'ระบบบันทึกคะแนนยังตั้งค่าไม่ครบ กรุณาติดต่อผู้ดูแลระบบ'},{status:503});
         if(mode==='invalid-receipt')return Response.json({ok:true});
         history.push({target:body.target_id,name:'ผู้ทดสอบรับ',department:'HR & Admin',round:body.round,created:new Date().toISOString()});
-        return Response.json({ok:true,persisted:true,answers:3,assessment_id:'test-assessment'});
+        return Response.json({ok:true,persisted:true,answers:3,assessment_id:'test-assessment',history_entry:history.at(-1)});
       }
       assert.ok(url.endsWith('/employees'));
       assert.equal(options.headers.Authorization,'Bearer test-session-token');
@@ -112,7 +113,7 @@ ok(!f.q('#app').innerHTML.includes('id="collaborated"'));
 f.run("form.scores=[4,4,5];form.reasons=['','',''];form.collaborated=false");
 await f.q('#review-form').handlers.click();
 ok(f.run('stage')==='review');
-ok(f.q('#app').innerHTML.includes('คะแนน 4–5 ดาวผ่านอัตโนมัติ'));
+ok(f.q('#app').innerHTML.includes('ผู้รับเห็นคะแนน 4–5 ดาวทันที'));
 ok(f.q('#app').innerHTML.includes('ยืนยันส่งการประเมิน'));
 f.run('showDialog=content=>{globalThis.savedDialog=content}');
 await f.q('#submit-form').handlers.click();
@@ -242,5 +243,25 @@ for(const [iso,text] of [
 const greetingRefresh=fixture();greetingRefresh.setTime('2026-11-05T10:59:00Z');await greetingRefresh.login();await tick();
 greetingRefresh.setTime('2026-11-05T11:01:00Z');greetingRefresh.run("document.visibilityState='visible';refreshScoresWhenVisible()");await tick();ok(greetingRefresh.q('#app').innerHTML.includes('ได้เวลาเลิกงานแล้ว กลับบ้านกัน ผู้ทดสอบ'));
 const escapedGreeting=fixture('nickname-escape');await escapedGreeting.login();await tick();ok(escapedGreeting.q('#app').innerHTML.includes('&lt;img')&&!escapedGreeting.q('#app').innerHTML.includes('<img src=x'));
+const instant=fixture('instant-feedback');await instant.login();await tick();
+ok(instant.q('#app').innerHTML.includes('ฟีดแบ็กที่ได้รับ')&&instant.q('#app').innerHTML.includes('★</span> 4 / 5')&&instant.q('#app').innerHTML.includes('★</span> 5 / 5'));
+ok(instant.run('Scores.data().summary.overall')===null);
+ok(!instant.calls.some(c=>c.url.includes('/hr/')));
+instant.run("document.visibilityState='visible';refreshScoresWhenVisible()");
+ok(instant.run("Scores.status()==='ready'")&&instant.q('#app').innerHTML.includes('★</span> 5 / 5'));
+await tick();
+ok(instant.calls.filter(c=>c.url.endsWith('/me/state')).length===2);
+
+const receiptHistory=fixture('history-read-fails');await receiptHistory.login();await tick();
+receiptHistory.run("go('rate')");await tick();
+receiptHistory.run("start('rec-project');form.scores=[4,5,4];stage='review';showDialog=content=>{globalThis.savedDialog=content};render()");
+await receiptHistory.q('#submit-form').handlers.click();
+ok(receiptHistory.run("Scores.status()==='error'&&Scores.history().length===1&&Scores.history()[0].target==='rec-project'"));
+ok(receiptHistory.run('savedDialog').includes('ดูประวัติการประเมิน'));
+receiptHistory.run("go('results')");
+ok(receiptHistory.q('#app').innerHTML.includes('ผู้ทดสอบรับ')&&receiptHistory.q('#app').innerHTML.includes('ส่งแล้ว')&&receiptHistory.q('#app').innerHTML.includes('history-details" open'));
+ok(!receiptHistory.q('#app').innerHTML.includes('simulated read failure'));
+receiptHistory.run('signOut()');
+ok(receiptHistory.run('Scores.history().length')===0);
 console.log(`Directory and scores UI: ${checks} checks passed with synthetic responses; no live employee data used.`);
 

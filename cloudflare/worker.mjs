@@ -426,7 +426,20 @@ async function submitAssessment(request,env,cfg) {
   }
   const saved=(await groups(await scoreRows(env,conditions))).find(x=>x.id===id);
   if (!saved) throw new APIError(502,'save_unconfirmed','ยังยืนยันการบันทึกครบ 3 ด้านไม่ได้ กรุณากดส่งอีกครั้ง');
-  return {ok:true,assessment_id:id,persisted:true,answers:3,created:saved.created};
+  return {ok:true,assessment_id:id,persisted:true,answers:3,created:saved.created,history_entry:historyEntry(saved)};
+}
+function historyEntry(a) {
+  return {target:a.target,name:a.name,department:a.department,round:a.round,created:a.created};
+}
+function visibleAnswer(a,i) {
+  const status=textValue(a.rows[i].fields?.[sf('status')]);
+  return (a.scores[i]>=4&&status===REVIEW.auto)||(status===REVIEW.approved&&!!textValue(a.rows[i].fields?.[sf('note')]));
+}
+function receivedFeedback(all) {
+  // Recipient projection: only visible scores, without rater IDs, raw comments,
+  // work context, submission/record IDs, pending answers or HR notes.
+  return all.map(a=>({round:a.round,created:a.created,answers:DIMENSIONS.flatMap((dimension,i)=>visibleAnswer(a,i)?[{dimension,score:a.scores[i]}]:[])}))
+    .filter(a=>a.answers.length).sort((a,b)=>b.created.localeCompare(a.created));
 }
 function previousRound(round) {const [y,m]=round.split('-').map(Number);return m===1?(y-1)+'-12':y+'-'+String(m-1).padStart(2,'0');}
 function summary(all,round,minimum) {
@@ -434,7 +447,7 @@ function summary(all,round,minimum) {
   // Keep the stored policy for historical feedback; mixed versions use the stricter gate.
   if (rows.length) minimum=Math.max(...rows.map(a=>Number(/^base-v1\/min-(\d+)$/.exec(a.policy||'')?.[1]||3)));
   const dims=DIMENSIONS.map((name,i)=>{
-    const valid=rows.filter(a=>{const status=textValue(a.rows[i].fields?.[sf('status')]);return (a.scores[i]>=4&&status===REVIEW.auto)||(status===REVIEW.approved&&textValue(a.rows[i].fields?.[sf('note')]));});
+    const valid=rows.filter(a=>visibleAnswer(a,i));
     const count=new Set(valid.map(a=>a.rater)).size;
     return {name,mean:n>=minimum&&count>=minimum?valid.reduce((sum,a)=>sum+a.scores[i],0)/valid.length:null};
   });
@@ -448,10 +461,10 @@ async function employeeState(request,env,cfg) {
   const rows=await scoreRows(env,[{field_name:sf('target'),operator:'is',value:[who.id]}]);
   // Separate server-side lookups: never send another person's raw feedback to this client.
   const mine=await scoreRows(env,[{field_name:sf('rater'),operator:'is',value:[ownKey]}]);
-  const received=await groups(rows),sent=await groups(mine),cutoff=Date.now()-30*86400000;
+  const received=await groups(rows),sent=await groups(mine),feedback=receivedFeedback(received),cutoff=Date.now()-30*86400000;
   const notifications={};
-  for (const a of received) if (Date.parse(a.created)>=cutoff&&Date.parse(a.created)<=Date.now()) notifications[a.created]=(notifications[a.created]||0)+1;
-  return {ok:true,round:sc.round,round_state:sc.state,policy:{version:sc.policy,minimum_raters:sc.minimum},summary:summary(received,sc.round,sc.minimum),previous:summary(received,previousRound(sc.round),sc.minimum),history:sent.map(a=>({target:a.target,name:a.name,department:a.department,round:a.round,created:a.created})),notifications:Object.entries(notifications).map(([created,count])=>({created,count})).sort((a,b)=>b.created.localeCompare(a.created))};
+  for (const a of feedback) if (Date.parse(a.created)>=cutoff&&Date.parse(a.created)<=Date.now()) notifications[a.created]=(notifications[a.created]||0)+1;
+  return {ok:true,round:sc.round,round_state:sc.state,policy:{version:sc.policy,minimum_raters:sc.minimum},summary:summary(received,sc.round,sc.minimum),previous:summary(received,previousRound(sc.round),sc.minimum),feedback,history:sent.map(historyEntry),notifications:Object.entries(notifications).map(([created,count])=>({created,count})).sort((a,b)=>b.created.localeCompare(a.created))};
 }
 async function hrState(request,env,cfg) {
   await actor(request,env,cfg,true);const sc=scoreConfig(env),map=await schema(env),missing=missingFields(map),invalid=invalidFields(map);
@@ -490,7 +503,7 @@ export default {
     if (origin&&origin!==(env.ALLOWED_ORIGIN||'https://bd-ctrl.github.io')) return reply(request,env,{ok:false,error:'origin_not_allowed',message:'ไม่อนุญาตให้เรียกจากเว็บไซต์นี้'},403);
     if (request.method==='OPTIONS') return reply(request,env,null,204);
     try {
-      if (['/','/health'].includes(url.pathname)&&request.method==='GET') return reply(request,env,{ok:true,service:'CUBIC CONNECT API',version:'scores-v1',capabilities:['employees','assessments','results','hr-review']});
+      if (['/','/health'].includes(url.pathname)&&request.method==='GET') return reply(request,env,{ok:true,service:'CUBIC CONNECT API',version:'scores-v1',capabilities:['employees','assessments','results','hr-review','immediate-feedback','sent-history-receipt']});
       const methods={'/login':'POST','/employees':'GET','/me/state':'GET','/hr/state':'GET','/hr/setup':'POST','/assessments':'POST'};
       const review=url.pathname.match(/^\/hr\/reviews\/([\w-]{3,100})$/);
       const method=review?'POST':methods[url.pathname];
