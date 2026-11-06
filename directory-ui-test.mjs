@@ -13,7 +13,7 @@ function fixture(mode = 'success') {
       innerHTML:'',value:'',textContent:'',hidden:true,disabled:false,
       handlers:{},classList:{add(){},remove(){}},
       addEventListener(name, fn){this.handlers[name]=fn;},
-      setAttribute(){},removeAttribute(){},focus(){}
+      setAttribute(){},removeAttribute(){},focus(){this.focused=true;},scrollIntoView(){this.scrolled=true;}
     });
     return elements.get(selector);
   };
@@ -234,6 +234,10 @@ for(const mode of ['already-assessed','late-history']){
  g.q('#context').value='โปรเจกต์ที่กรอกไว้';g.q('#context').handlers.input({target:g.q('#context')});
  g.q('#target-person').value='rec-project';await g.q('#target-person').handlers.change({target:g.q('#target-person')});
  ok(g.q('#app').innerHTML.includes('คุณส่งการประเมินคนนี้แล้วในรอบนี้')&&beginDisabled(g));
+ const selectedPage=g.q('#app').innerHTML;
+ ok(selectedPage.indexOf('<h2>เลือกผู้ร่วมงาน</h2>')<selectedPage.indexOf('id="target-status"')&&selectedPage.indexOf('id="target-status"')<selectedPage.indexOf('id="department"'));
+ ok(!/<div id="target-status"[^>]*hidden/.test(selectedPage)&&selectedPage.includes('โครงการใหม่ · Project Co'));
+ ok(g.q('#target-status').focused&&g.q('#target-status').scrolled);
  ok(g.q('#app').innerHTML.includes('โปรเจกต์ที่กรอกไว้')&&g.run('form')===null);
  ok(!/<option value="rec-project"[^>]*disabled/.test(g.q('#app').innerHTML));
  await g.q('#begin-person').handlers.click();ok(g.run('form')===null);

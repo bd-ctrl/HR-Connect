@@ -163,7 +163,11 @@ dialog{border:1px solid #eee2dc;border-radius:25px;background:#fffaf4;color:var(
 .rating-scale{margin:0;padding:0;list-style:none;font-size:14px;line-height:1.7}
 .rating-scale li{display:flex;align-items:baseline;gap:9px;margin:5px 0}
 .rating-level{flex:0 0 14px;color:#7861a2;font-weight:700}
-.picker-status{margin:10px 0 0}
+.picker-status{margin:0 0 22px;padding:16px 18px;border:1px solid #e5ddef;border-radius:14px;background:#f5effa;color:#705a8b;font-size:14px;line-height:1.65;scroll-margin:20px}
+.picker-status.is-complete{border-color:#c7dfd4;background:#edf7f0;color:#2c6758}
+.picker-status strong{display:block;font-size:15px;font-weight:700}
+.picker-status p{margin:5px 0 0;font-size:13px}
+.picker-status:focus{outline:2px solid #8db6a5;outline-offset:3px}
 .picker-status[hidden]{display:none}
 .assessment-rating-guide>.muted{margin:12px 0 0;line-height:1.7}
 .header-actions{display:flex;align-items:center;gap:10px;margin-left:auto;flex-shrink:0}
