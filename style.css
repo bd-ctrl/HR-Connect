@@ -141,31 +141,37 @@ dialog{border:1px solid #eee2dc;border-radius:25px;background:#fffaf4;color:var(
  .score-home-card-featured>.row .mascot-aura{width:185px;height:185px;flex-basis:185px}
 }
 
-/* The mascot holds the horizontal top edge on every screen size. */
+/* Keep the assessment heading compact, with the mascot above the right side. */
 .assessment-form{display:flow-root}
 .assessment-back-row{display:flex;justify-content:flex-start;margin-top:18px}
-.assessment-card{position:relative;overflow:visible;margin-top:190px;padding-top:38px}
+.assessment-heading{max-width:760px;margin:auto;position:relative;z-index:1}
+.assessment-heading .page-head{align-items:flex-end;min-height:0;margin-bottom:0;padding-right:100px;gap:18px}
+.assessment-heading .page-head>div{flex:1;min-width:0;padding-bottom:24px}
+.assessment-heading-mascot{display:block;width:200px;flex:0 0 200px;transform:translateY(8px);pointer-events:none;user-select:none;line-height:0}
+.assessment-heading-mascot img{display:block;width:100%;height:auto;object-fit:contain}
+.assessment-card{position:relative;overflow:visible;margin-top:0;padding-top:28px}
 .assessment-person{min-width:0;margin-bottom:24px}
 .assessment-context-label{font-size:14px;color:#756784;margin:0 0 8px}
 .assessment-person h2{display:flex;flex-wrap:wrap;align-items:baseline;gap:8px 14px;color:#267a7d;font-size:30px;line-height:1.4;margin:0 0 8px;overflow-wrap:anywhere}
 .assessment-department{font-size:21px;font-weight:600;color:#7561a3}
 .assessment-project{margin-top:0}
-.assessment-peek{display:block;position:absolute;top:0;left:50%;width:224px;transform:translate(-50%,-92%);z-index:2;pointer-events:none;user-select:none;line-height:0}
-.assessment-peek img{display:block;width:100%;height:auto;object-fit:contain}
 .assessment-back{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:44px;padding:11px 20px;border:1px solid #d1e1fa;border-radius:12px;background:#e3efff;color:#355e99;font-weight:700;font-size:14px}
 .assessment-back:hover{background:#d5e6ff}
 .assessment-back svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
 .assessment-rating-guide{padding:18px 20px;margin:0 0 18px;border:1px solid #e9e2ef;border-radius:14px;background:#f9f5fc}
 .assessment-rating-guide h3{font-size:15px;color:#6b5695;margin:0 0 10px}
-.rating-scale{margin:0;padding-left:25px;font-size:14px;line-height:1.7}
-.rating-scale li{padding-left:5px;margin:5px 0}
-.rating-scale li::marker{color:#7861a2;font-weight:700}
+.rating-scale{margin:0;padding:0;list-style:none;font-size:14px;line-height:1.7}
+.rating-scale li{display:flex;align-items:baseline;gap:9px;margin:5px 0}
+.rating-level{flex:0 0 14px;color:#7861a2;font-weight:700}
+.picker-status{margin:10px 0 0}
+.picker-status[hidden]{display:none}
 .assessment-rating-guide>.muted{margin:12px 0 0;line-height:1.7}
 .header-actions{display:flex;align-items:center;gap:10px;margin-left:auto;flex-shrink:0}
 .topbar .header-actions .notification-button{margin-left:0}
 .logout-button{display:inline-flex;align-items:center;justify-content:center;gap:7px;min-height:44px;padding:10px 13px;border:1px solid #dfd5e9;border-radius:13px;background:#fffaf7;color:#655184;font-size:12px;font-weight:600;white-space:nowrap}
 .logout-button svg{width:19px;height:19px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
 .logout-button:hover{background:#f0e8f7}
+@media(min-width:641px) and (max-width:1050px){.assessment-heading .page-head{padding-right:0}.assessment-heading-mascot{width:168px;flex-basis:168px}}
 @media(max-width:640px){
  .topbar{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px 8px;align-items:center}
  .topbar .mobile-brand{grid-column:1;grid-row:1;font-size:22px}
@@ -173,8 +179,11 @@ dialog{border:1px solid #eee2dc;border-radius:25px;background:#fffaf4;color:var(
  .topbar .role{grid-column:1/-1;grid-row:2}
  .logout-button{padding:9px 10px;min-height:44px}
  .logout-button svg{width:18px;height:18px}
- .assessment-card{margin-top:158px;padding-top:34px}
- .assessment-peek{width:184px}
+ .assessment-heading .page-head{min-height:0;padding-right:0;gap:12px}
+ .assessment-heading .page-head>div{padding-bottom:18px}
+ .assessment-heading h1{font-size:24px}
+ .assessment-heading-mascot{width:124px;flex-basis:124px;transform:translateY(5px)}
+ .assessment-card{padding-top:24px}
  .assessment-person h2{font-size:27px;gap:6px 12px}
  .assessment-department{font-size:20px}
  .assessment-rating-guide{padding:16px}

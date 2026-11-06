@@ -17,7 +17,7 @@ function fixture(mode = 'success') {
     });
     return elements.get(selector);
   };
-  let clock = Date.now(), resolveDirectory, resolveSave, history=[],setupPrepared=false;
+  let clock = Date.now(), resolveDirectory, resolveSave, resolveHistory, historyReads=0, history=mode==='already-assessed'?[{target:'rec-project',name:'โครงการใหม่',department:'Project Co',round:'2026-10',created:'2026-10-29T08:00:00Z'}]:[],setupPrepared=false;
   const isHR=mode.startsWith('hr-');
   class TestDate extends Date {constructor(...args){super(...(args.length?args:[clock]));}static now(){return clock;}}
   const context = {
@@ -35,6 +35,9 @@ function fixture(mode = 'success') {
       if(url.endsWith('/hr/state'))return Response.json({ok:true,round:'2026-10',policy:{version:'test',minimum_raters:3},reviews:[],storage_private:true,score_table_id:'tblScores',setup_required:mode==='hr-wrong-type'||!setupPrepared||mode==='hr-setup-stale',missing:setupPrepared&&mode!=='hr-setup-stale'?[]:['CC_รหัสผู้รับ'],invalid_fields:mode==='hr-wrong-type'?['คะแนนดาว']:[]});
       if(url.endsWith('/hr/setup')){setupPrepared=true;return Response.json({ok:true,created:['CC_รหัสผู้รับ'],storage_private:true,ready:true});}
       if(url.endsWith('/me/state')){
+        historyReads++;
+        if(mode==='pending-history'&&historyReads>1)await new Promise(resolve=>{resolveHistory=resolve;});
+        if(mode==='late-history'&&historyReads>1)history=[{target:'rec-project',name:'โครงการใหม่',department:'Project Co',round:'2026-10',created:'2026-10-29T08:00:00Z'}];
         if(mode==='history-read-fails'&&history.length)return Response.json({ok:false,error:'lark_unavailable',message:'simulated read failure'},{status:502});
         if(mode==='score-unauthorized')return new Response('Session expired',{status:401});
         if(mode==='api-missing')return Response.json({ok:false,error:'not_found'},{status:404});
@@ -83,11 +86,12 @@ function fixture(mode = 'success') {
     },
     expire(){clock+=16*60000;},
     setTime(iso){clock=Date.parse(iso);},
-    finish(){resolveDirectory?.();resolveSave?.();}
+    finish(){resolveDirectory?.();resolveSave?.();resolveHistory?.();}
   };
 }
 
 const tick=()=>new Promise(resolve=>setImmediate(resolve));
+const beginDisabled=f=>/<button[^>]*id="begin-person"[^>]*\sdisabled/.test(f.q('#app').innerHTML);
 const f=fixture();
 ok(f.calls.length===0);
 await f.login();
@@ -173,7 +177,7 @@ for(const mode of ['score-setup-required','score-private','api-missing']){
  ok(!g.q('#app').innerHTML.includes("class='demo'>BASE"));
  g.q('#department').value='Project Co';await g.q('#department').handlers.change({target:g.q('#department')});g.q('#target-person').value='rec-project';
  await g.q('#target-person').handlers.change({target:g.q('#target-person')});
- ok(!g.q('#begin-person').disabled);
+ ok(!beginDisabled(g));
  g.run('render()');
  ok(g.q('#app').innerHTML.includes('value="rec-project" selected'));
  await g.q('#begin-person').handlers.click();ok(g.run('form.target')==='rec-project');
@@ -216,12 +220,37 @@ race.run('signOut()');race.finish();await waiting;ok(race.run('Scores.status()')
 // A valid selection enables the form; mismatched, self, completed and closed targets stay blocked.
 const selection=fixture();await selection.login();await tick();selection.run("go('rate')");await tick();
 selection.q('#department').value='Project Co';await selection.q('#department').handlers.change({target:selection.q('#department')});selection.q('#target-person').value='rec-hr';
-await selection.q('#target-person').handlers.change({target:selection.q('#target-person')});ok(selection.q('#begin-person').disabled);
-selection.q('#target-person').value='rec-project';await selection.q('#target-person').handlers.change({target:selection.q('#target-person')});ok(!selection.q('#begin-person').disabled);
+await selection.q('#target-person').handlers.change({target:selection.q('#target-person')});ok(beginDisabled(selection));
+selection.q('#target-person').value='rec-project';await selection.q('#target-person').handlers.change({target:selection.q('#target-person')});ok(!beginDisabled(selection));
 selection.run('render()');ok(selection.q('#app').innerHTML.includes('value="rec-project" selected'));
 selection.run("start('rec-self')");ok(selection.run('form')===null);
 selection.run("db.notWorked.push('rec-project');start('rec-project')");ok(selection.run('form')===null);
 const closed=fixture('closed-round');await closed.login();await tick();closed.run("go('rate')");await tick();closed.run("start('rec-project')");ok(closed.run('form')===null);
+
+// Catch completed assessments at selection, including history updated since login.
+for(const mode of ['already-assessed','late-history']){
+ const g=fixture(mode);await g.login();await tick();g.run("go('rate')");await tick();
+ g.q('#department').value='Project Co';await g.q('#department').handlers.change({target:g.q('#department')});
+ g.q('#context').value='โปรเจกต์ที่กรอกไว้';g.q('#context').handlers.input({target:g.q('#context')});
+ g.q('#target-person').value='rec-project';await g.q('#target-person').handlers.change({target:g.q('#target-person')});
+ ok(g.q('#app').innerHTML.includes('คุณส่งการประเมินคนนี้แล้วในรอบนี้')&&beginDisabled(g));
+ ok(g.q('#app').innerHTML.includes('โปรเจกต์ที่กรอกไว้')&&g.run('form')===null);
+ ok(!/<option value="rec-project"[^>]*disabled/.test(g.q('#app').innerHTML));
+ await g.q('#begin-person').handlers.click();ok(g.run('form')===null);
+ ok(!g.calls.some(c=>c.url.endsWith('/assessments')));
+ g.q('#department').value='HR & Admin';await g.q('#department').handlers.change({target:g.q('#department')});
+ g.q('#target-person').value='rec-hr';await g.q('#target-person').handlers.change({target:g.q('#target-person')});
+ ok(!beginDisabled(g)&&!g.q('#app').innerHTML.includes('คุณส่งการประเมินคนนี้แล้วในรอบนี้'));
+ await g.q('#begin-person').handlers.click();ok(g.run('form.target')==='rec-hr'&&g.run('form.context')==='โปรเจกต์ที่กรอกไว้');
+}
+// Block starting during the fresh read, and discard a late selection check after navigating away.
+const checking=fixture('pending-history');await checking.login();await tick();checking.run("go('rate')");await tick();
+checking.q('#department').value='Project Co';await checking.q('#department').handlers.change({target:checking.q('#department')});
+checking.q('#target-person').value='rec-project';const checkPending=checking.q('#target-person').handlers.change({target:checking.q('#target-person')});await tick();
+ok(checking.run('pickerChecking')&&beginDisabled(checking)&&checking.q('#app').innerHTML.includes('กำลังตรวจสอบประวัติการประเมิน'));
+await checking.q('#begin-person').handlers.click();ok(checking.run('form')===null);
+checking.run("go('home')");checking.finish();await checkPending;
+ok(checking.run("page==='home'&&!pickerChecking&&form===null&&pickerTarget===''")&&!checking.q('#app').innerHTML.includes('id="target-person"'));
 
 // Expired sessions leave the authenticated screen and retain the current account's draft.
 const draft=fixture();await draft.login();await tick();draft.run("go('rate')");await tick();draft.run("start('rec-project');form.scores=[4,4,5]");draft.q('#context').value='งานที่กำลังกรอก';draft.expire();
