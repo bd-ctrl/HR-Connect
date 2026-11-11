@@ -519,11 +519,31 @@ function visibleAnswer(a,i) {
   return (a.scores[i] >= 4 && status === REVIEW.auto) ||
     (status === REVIEW.approved && Boolean(reviewed || textValue(fields?.[sf('note')])));
 }
-function receivedFeedback(all) {
-  // Recipient projection: only visible scores, without rater IDs, raw comments,
-  // work context, submission/record IDs, pending answers or HR notes.
-  return all.map(a=>({round:a.round,created:a.created,answers:DIMENSIONS.flatMap((dimension,i)=>visibleAnswer(a,i)?[{dimension,score:a.scores[i]}]:[])}))
-    .filter(a=>a.answers.length).sort((a,b)=>b.created.localeCompare(a.created));
+function receivedFeedback(all, minimum) {
+  const rounds = new Map(), visible = [];
+  for (const a of all) {
+    if (!rounds.has(a.round)) rounds.set(a.round, {minimum:Math.max(3, minimum), raters:DIMENSIONS.map(()=>new Set())});
+    const cohort = rounds.get(a.round);
+    cohort.minimum = Math.max(cohort.minimum, Number(a.policy.split('min-')[1]));
+    const scores = a.scores.map((score, i) => visibleAnswer(a, i) ? score : null);
+    scores.forEach((score, i) => { if (score !== null) cohort.raters[i].add(a.rater); });
+    if (scores.some(score=>score!==null)) visible.push({round:a.round, created:a.created, scores});
+  }
+
+  const now = Date.now(), cutoff = now - 30 * 86400000, notices = new Map(), feedback = [];
+  for (const {round, created, scores} of visible) {
+    const time = Date.parse(created);
+    if (time >= cutoff && time <= now) notices.set(created, (notices.get(created) || 0) + 1);
+    // Count distinct raters independently for each dimension and round.
+    const cohort = rounds.get(round);
+    const answers = DIMENSIONS.flatMap((dimension, i) =>
+      scores[i] !== null && cohort.raters[i].size >= cohort.minimum ? [{dimension, score:scores[i]}] : []);
+    if (answers.length) feedback.push({round, created, answers});
+  }
+  return {
+    feedback: feedback.sort((a,b)=>b.created.localeCompare(a.created)),
+    notifications: [...notices].map(([created,count])=>({created,count})).sort((a,b)=>b.created.localeCompare(a.created))
+  };
 }
 function previousRound(round) {const [y,m]=round.split('-').map(Number);return m===1?(y-1)+'-12':y+'-'+String(m-1).padStart(2,'0');}
 function summary(all,round,minimum) {
@@ -545,14 +565,13 @@ async function employeeState(request,env,cfg) {
   const rows=await scoreRows(env,[{field_name:sf('target'),operator:'is',value:[who.id]}]);
   // Separate server-side lookups: never send another person's raw feedback to this client.
   const mine=await scoreRows(env,[{field_name:sf('rater'),operator:'is',value:[ownKey]}]);
-  const received=await groups(rows),sent=await groups(mine),feedback=receivedFeedback(received),cutoff=Date.now()-30*86400000;
-  const notifications={};
-  for (const a of feedback) if (Date.parse(a.created)>=cutoff&&Date.parse(a.created)<=Date.now()) notifications[a.created]=(notifications[a.created]||0)+1;
-  return {ok:true,round:sc.round,round_state:sc.state,draft_sync:Boolean(env.DRAFTS_DB),policy:{version:sc.policy,minimum_raters:sc.minimum},summary:summary(received,sc.round,sc.minimum),previous:summary(received,previousRound(sc.round),sc.minimum),feedback,history:sent.map(historyEntry),notifications:Object.entries(notifications).map(([created,count])=>({created,count})).sort((a,b)=>b.created.localeCompare(a.created))};
+  const received=await groups(rows),sent=await groups(mine);
+  const {feedback,notifications}=receivedFeedback(received,sc.minimum);
+  return {ok:true,round:sc.round,round_state:sc.state,draft_sync:Boolean(env.DRAFTS_DB),policy:{version:sc.policy,minimum_raters:sc.minimum},summary:summary(received,sc.round,sc.minimum),previous:summary(received,previousRound(sc.round),sc.minimum),feedback,history:sent.map(historyEntry),notifications};
 }
 async function hrState(request,env,cfg) {
   await actor(request,env,cfg,true);const sc=scoreConfig(env),map=await schema(env),missing=missingFields(map),invalid=invalidFields(map);
-  const state = {ok:true,setup_required:!!(missing.length||invalid.length),missing,invalid_fields:invalid,score_table_id:env.LARK_SCORE_TABLE_ID,storage_private:sc.private,round:sc.round,round_state:sc.state,policy:{version:sc.policy,minimum_raters:sc.minimum},approval_note_optional:true,heatmap_available:true};
+  const state = {ok:true,setup_required:!!(missing.length||invalid.length),missing,invalid_fields:invalid,score_table_id:env.LARK_SCORE_TABLE_ID,storage_private:sc.private,round:sc.round,round_state:sc.state,policy:{version:sc.policy,minimum_raters:sc.minimum},approval_note_optional:true,heatmap_available:true,dashboard_available:true};
   if (state.setup_required || !sc.private) return {...state,reviews:[]};
   validateSchema(map);
   const all=await groups(await scoreRows(env,[{field_name:sf('round'),operator:'is',value:[sc.round]}]));
@@ -560,7 +579,27 @@ async function hrState(request,env,cfg) {
   return {...state,reviews};
 }
 
-async function hrHeatmap(request, env, cfg, round) {
+function dashboardScores(assessments) {
+  const contributors = new Set();
+  const means = DIMENSIONS.map((_, i) => {
+    const raters = new Map();
+    for (const a of assessments) {
+      if (!visibleAnswer(a, i)) continue;
+      const total = raters.get(a.rater) || {sum:0, count:0};
+      total.sum += a.scores[i];
+      total.count++;
+      raters.set(a.rater, total);
+      contributors.add(a.rater);
+    }
+    // Each rater has equal weight, even when rating several people in a department.
+    return raters.size ? [...raters.values()].reduce((sum,rater)=>sum+rater.sum/rater.count,0)/raters.size : null;
+  });
+  const overall = means.every(mean=>mean!==null) ? means.reduce((sum,mean)=>sum+mean,0)/means.length : null;
+  const rounded = mean => mean===null ? null : Math.round(mean*100)/100;
+  return {means:means.map(rounded), overall:rounded(overall), raters:contributors.size};
+}
+
+async function hrDashboard(request, env, cfg, round) {
   await actor(request, env, cfg, true);
   const sc = scoreConfig(env);
   requirePrivate(sc);
@@ -568,32 +607,32 @@ async function hrHeatmap(request, env, cfg, round) {
   const all = await groups(await scoreRows(env, round ? [{field_name:sf('round'),operator:'is',value:[round]}] : []));
   const rounds = [...new Set([sc.round, ...all.map(a => a.round)])].sort().reverse();
   round ||= sc.round;
-  const departments = new Map();
-  for (const a of all) {
-    if (a.round !== round || !a.department) continue;
-    if (!departments.has(a.department)) {
-      departments.set(a.department, DIMENSIONS.map(() => ({ raters: new Map(), minimum: Math.max(3, sc.minimum) })));
-    }
-    const cells = departments.get(a.department);
-    a.scores.forEach((score, i) => {
-      const cell = cells[i];
-      cell.minimum = Math.max(cell.minimum, Number(a.policy.split('min-')[1]));
-      if (!visibleAnswer(a, i)) return;
-      const total = cell.raters.get(a.rater) || { sum: 0, count: 0 };
-      total.sum += score;
-      total.count++;
-      cell.raters.set(a.rater, total);
-    });
+  const assessments = all.filter(a=>a.round===round);
+  const departments = new Map(), people = new Map();
+  const add = (map, key, a) => {
+    if (!map.has(key)) map.set(key, []);
+    map.get(key).push(a);
+  };
+  for (const a of assessments) {
+    add(people, a.target, a);
+    if (a.department) add(departments, a.department, a);
   }
-  const rows = [...departments].sort(([a], [b]) => a.localeCompare(b, 'th')).map(([department, cells]) => ({
-    department,
-    means: cells.map(({ raters, minimum }) => {
-      if (raters.size < minimum) return null;
-      const mean = [...raters.values()].reduce((sum, rater) => sum + rater.sum / rater.count, 0) / raters.size;
-      return Math.round(mean * 100) / 100;
-    })
+  const departmentScores = [...departments].sort(([a],[b])=>a.localeCompare(b,'th')).map(([department, entries])=>({
+    department, ...dashboardScores(entries)
   }));
-  return { ok: true, round, rounds, dimensions: DIMENSIONS, rows };
+  const personScores = [...people.values()].map(entries=>{
+    const {name, department} = entries.at(-1);
+    return {name, department, ...dashboardScores(entries)};
+  });
+  const rank = (scores, label) => scores.filter(entry=>entry.overall!==null)
+    .sort((a,b)=>b.overall-a.overall||a[label].localeCompare(b[label],'th'))
+    .map(({means,...entry})=>entry);
+  return {
+    ok:true, round, rounds, dimensions:DIMENSIONS,
+    counts:{raters:new Set(assessments.map(a=>a.rater)).size, recipients:people.size},
+    rows:departmentScores.map(({department, means})=>({department, means})),
+    rankings:{people:rank(personScores,'name'), departments:rank(departmentScores,'department')}
+  };
 }
 
 async function reviewScore(request,env,cfg,id) {
@@ -638,7 +677,7 @@ export default {
     if (origin&&origin!==(env.ALLOWED_ORIGIN||'https://bd-ctrl.github.io')) return reply(request,env,{ok:false,error:'origin_not_allowed',message:'ไม่อนุญาตให้เรียกจากเว็บไซต์นี้'},403);
     if (request.method==='OPTIONS') return reply(request,env,null,204);
     try {
-      if (['/','/health'].includes(url.pathname)&&request.method==='GET') return reply(request,env,{ok:true,service:'CUBIC CONNECT API',version:'scores-v2',capabilities:['employees','assessments','results','hr-review','immediate-feedback','sent-history-receipt','sent-history-details','role-selection','hr-heatmap','approval-note-optional',...(env.DRAFTS_DB?['account-drafts']:[])]});
+      if (['/','/health'].includes(url.pathname)&&request.method==='GET') return reply(request,env,{ok:true,service:'CUBIC CONNECT API',version:'scores-v3',capabilities:['employees','assessments','results','hr-review','feedback-threshold','sent-history-receipt','sent-history-details','role-selection','hr-heatmap','hr-dashboard','approval-note-optional',...(env.DRAFTS_DB?['account-drafts']:[])]});
       const methods={'/login':'POST','/employees':'GET','/me/state':'GET','/hr/state':'GET','/hr/heatmap':'GET','/hr/setup':'POST','/assessments':'POST'};
       const review=url.pathname.match(/^\/hr\/reviews\/([\w-]{3,100})$/);
       const draft=url.pathname.match(/^\/me\/drafts\/([\w-]{3,100})$/);
@@ -655,7 +694,7 @@ export default {
       else if (url.pathname==='/employees') body=await employeeList(request,env,cfg);
       else if (url.pathname==='/me/state') body=await employeeState(request,env,cfg);
       else if (url.pathname==='/hr/state') body=await hrState(request,env,cfg);
-      else if (heatmap) body=await hrHeatmap(request,env,cfg,round);
+      else if (heatmap) body=await hrDashboard(request,env,cfg,round);
       else if (url.pathname==='/hr/setup') body=await setupScores(request,env,cfg);
       else if (url.pathname==='/assessments') body=await submitAssessment(request,env,cfg);
       else if (draft) body=await assessmentDraft(request,env,cfg,draft[1]);

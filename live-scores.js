@@ -1,11 +1,13 @@
 // A successful submission requires a Base receipt. Drafts use a separate account-scoped store.
 (function(root){
  let state={status:'idle',data:null,error:'',code:''},generation=0,sequence=0,sending=false,refreshing=false,confirmedHistory=[],hooks={};
- let heatmap={status:'idle',data:null,round:'',error:''};
+ let dashboard={status:'idle',data:null,round:'',error:''};
  const e=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
  const active=()=>root.GlowLogin.active(),admin=()=>root.GlowLogin.profile()?.role==='admin';
  const emit=()=>hooks.render?.();
  const numeric=v=>v===null||(typeof v==='number'&&Number.isFinite(v)&&v>=1&&v<=5);
+ const validRound=r=>typeof r==='string'&&/^20\d{2}-(0[1-9]|1[0-2])$/.test(r);
+ const validCount=n=>Number.isInteger(n)&&n>=0;
  const validSummary=r=>r&&numeric(r.overall)&&Array.isArray(r.dims)&&r.dims.length===3&&r.dims.every(d=>numeric(d.mean));
  const validHistoryAnswers=answers=>Array.isArray(answers)&&answers.length===3&&new Set(answers.map(a=>a.dimension)).size===3&&answers.every(a=>['ความเร็ว','ความถูกต้อง','การสื่อสาร'].includes(a.dimension)&&Number.isInteger(a.score)&&a.score>=1&&a.score<=5&&typeof a.reason==='string');
  const validHistory=h=>h&&typeof h.target==='string'&&typeof h.name==='string'&&typeof h.department==='string'&&/^20\d{2}-(0[1-9]|1[0-2])$/.test(h.round)&&Number.isFinite(Date.parse(h.created))&&(h.answers===undefined||validHistoryAnswers(h.answers))&&(h.context===undefined||typeof h.context==='string');
@@ -16,7 +18,7 @@
   for(const h of [...confirmedHistory,...(state.data?.history||[])]){const key=h.round+'|'+h.target,previous=merged.get(key);merged.set(key,{...previous,...h,answers:h.answers??previous?.answers,context:h.context??previous?.context});}
   return [...merged.values()];
  }
- function reset(){generation++;sequence++;state={status:'idle',data:null,error:'',code:''};heatmap={status:'idle',data:null,round:'',error:''};sending=false;refreshing=false;confirmedHistory=[];}
+ function reset(){generation++;sequence++;state={status:'idle',data:null,error:'',code:''};dashboard={status:'idle',data:null,round:'',error:''};sending=false;refreshing=false;confirmedHistory=[];}
  function ready(){return state.status==='ready'&&!state.data.setup_required&&state.data.storage_private!==false;}
  function round(){return state.data?.round||'2026-10';}
  function dateLabel(value){return new Date(value).toLocaleDateString('th-TH',{timeZone:'Asia/Bangkok',day:'numeric',month:'short',year:'numeric'});}
@@ -82,8 +84,15 @@
  }
  function feedbackView(){
   if(state.status!=='ready'||!Array.isArray(state.data?.feedback))return '';
+  const minimum=Math.max(3,state.data.summary.minimum_raters||0,state.data.policy.minimum_raters);
   const items=state.data.feedback.filter(f=>f.round===round());
-  return '<section class="card received-feedback"><div class="row"><h2>ฟีดแบ็กที่ได้รับ</h2><span class="pill">'+e(monthLabel(round()))+'</span></div><p class="muted">คะแนน 4–5 ดาวแสดงหลังบันทึกสำเร็จทันที · ไม่แสดงชื่อผู้ประเมิน</p>'+(items.length?'<div class="received-feedback-list">'+items.map(f=>'<article class="received-feedback-item"><p class="muted">'+e(dateLabel(f.created))+'</p><div class="received-feedback-scores">'+f.answers.map(a=>'<div><span>'+e(a.dimension)+'</span><strong><span aria-hidden="true">★</span> '+a.score+' / 5</strong></div>').join('')+'</div></article>').join('')+'</div>':'<p class="feedback-empty">เมื่อมีคะแนนที่แสดงได้ คุณจะเห็นรายการที่นี่</p>')+'</section>';
+  if(items.length<minimum)return '';
+  // Older Workers also return one entry per rater and round, but send scores before the gate.
+  const counts=new Map();
+  for(const {answers} of items)for(const {dimension} of answers)counts.set(dimension,(counts.get(dimension)||0)+1);
+  const visible=items.map(f=>({...f,answers:f.answers.filter(a=>counts.get(a.dimension)>=minimum)})).filter(f=>f.answers.length);
+  if(!visible.length)return '';
+  return '<section class="card received-feedback"><div class="row"><h2>ฟีดแบ็กที่ได้รับ</h2><span class="pill">'+e(monthLabel(round()))+'</span></div><div class="received-feedback-list">'+visible.map(f=>'<article class="received-feedback-item"><p class="muted">'+e(dateLabel(f.created))+'</p><div class="received-feedback-scores">'+f.answers.map(a=>'<div><span>'+e(a.dimension)+'</span><strong><span aria-hidden="true">★</span> '+a.score+' / 5</strong></div>').join('')+'</div></article>').join('')+'</div></section>';
  }
  function home(ui){
   if(admin())return hrHome(ui);
@@ -105,48 +114,85 @@
     <button class="primary" type="button" data-nav="queue">ดูคิวอนุมัติ · ${pendingCount()} รายการ</button>
    </section>`:'');
  }
- async function loadHeatmap(selected=''){
+ async function loadDashboard(selected=''){
   if(!active()||!admin())return;
-  const g=generation,previous=heatmap.data;
-  const loading=heatmap={status:'loading',data:previous,round:selected,error:''};
+  const g=generation,previous=dashboard.data;
+  const loading=dashboard={status:'loading',data:previous,round:selected,error:''};
   emit();
   try{
    const data=await root.GlowLogin.request('/hr/heatmap'+(selected?'?round='+encodeURIComponent(selected):''));
-   if(g!==generation||heatmap!==loading||!active())return;
-   if(!Array.isArray(data.rounds)||!Array.isArray(data.dimensions)||data.dimensions.length!==3||
-      !Array.isArray(data.rows)||data.rows.some(row=>typeof row.department!=='string'||!Array.isArray(row.means)||row.means.length!==3||!row.means.every(numeric))){
-    throw Error('ข้อมูล Heatmap ไม่ถูกต้อง');
+   if(g!==generation||dashboard!==loading||!active())return;
+   const ranked=row=>row&&typeof row.department==='string'&&row.overall!==null&&numeric(row.overall)&&validCount(row.raters)&&row.raters>0;
+   if(!validRound(data.round)||(selected&&data.round!==selected)||!Array.isArray(data.rounds)||!data.rounds.every(validRound)||
+      !Array.isArray(data.dimensions)||data.dimensions.length!==3||data.dimensions.some(name=>typeof name!=='string')||
+      !Array.isArray(data.rows)||data.rows.some(row=>!row||typeof row.department!=='string'||!Array.isArray(row.means)||row.means.length!==3||!row.means.every(numeric))||
+      !validCount(data.counts?.raters)||!validCount(data.counts?.recipients)||
+      !Array.isArray(data.rankings?.people)||!data.rankings.people.every(row=>ranked(row)&&typeof row.name==='string')||
+      !Array.isArray(data.rankings?.departments)||!data.rankings.departments.every(ranked)){
+    throw Error('ข้อมูลแดชบอร์ดไม่ถูกต้อง');
    }
    data.rounds=[...new Set([...(previous?.rounds||[]),...data.rounds])].sort().reverse();
-   heatmap={status:'ready',data,round:data.round,error:''};
+   dashboard={status:'ready',data,round:data.round,error:''};
   }catch(error){
-   if(g!==generation||heatmap!==loading||!active())return;
-   heatmap={status:'error',data:previous,round:selected,error:error.message};
+   if(g!==generation||dashboard!==loading||!active())return;
+   dashboard={status:'error',data:previous,round:selected,error:error.message};
   }
   emit();
  }
- function heatmapView(){
-  if(!ready())return setupNotice();
-  if(state.data.heatmap_available!==true)return '<section class="card"><h2>Heatmap</h2><p class="muted">Heatmap จะพร้อมใช้งานหลังอัปเดตระบบคะแนน</p></section>';
-  const d=heatmap.data,selected=heatmap.round||round();
-  const months=d?.rounds||[round()];
-  const table=d?.rows.length?`<div class="heatmap-table-wrap"><table class="heatmap-table">
+ function heatmapView(data){
+  const table=data.rows.length?`<div class="heatmap-table-wrap"><table class="heatmap-table">
    <caption class="sr-only">คะแนนเฉลี่ยตามแผนกผู้รับและด้านที่ประเมิน</caption>
-   <thead><tr><th scope="col">แผนกผู้รับ</th>${d.dimensions.map(name=>`<th scope="col">${e(name)}</th>`).join('')}</tr></thead>
-   <tbody>${d.rows.map(row=>`<tr><th scope="row">${e(row.department)}</th>${row.means.map(mean=>mean===null
-    ? '<td class="heatmap-empty">ยังไม่ครบเกณฑ์</td>'
+   <thead><tr><th scope="col">แผนกผู้รับ</th>${data.dimensions.map(name=>`<th scope="col">${e(name)}</th>`).join('')}</tr></thead>
+   <tbody>${data.rows.map(row=>`<tr><th scope="row">${e(row.department)}</th>${row.means.map(mean=>mean===null
+    ? '<td class="heatmap-empty" aria-label="ยังไม่มีคะแนนที่ใช้คำนวณ">—</td>'
     : `<td class="heatmap-value heatmap-band-${Math.floor(mean)}">${mean.toFixed(2)}</td>`).join('')}</tr>`).join('')}</tbody>
   </table></div>`:'<p class="muted">ยังไม่มีผลประเมินในรอบนี้</p>';
-  return `<section class="card hr-heatmap" id="hr-heatmap">
-   <div class="heatmap-heading"><div><h2>Heatmap</h2><p class="muted">คะแนนเฉลี่ยตามแผนกผู้รับ · เฉพาะคะแนนที่ผ่านการตรวจและครบเกณฑ์</p></div>
-    <div class="field"><label for="heatmap-round">รอบประเมิน</label><select id="heatmap-round">${months.map(r=>`<option value="${e(r)}" ${r===selected?'selected':''}>${e(monthLabel(r))}</option>`).join('')}</select></div></div>
-   ${heatmap.status==='ready'?table:heatmap.status==='error'?'<p class="error" role="alert">'+e(heatmap.error)+'</p><button class="secondary" id="retry-heatmap">โหลดอีกครั้ง</button>':'<p class="muted" role="status">กำลังโหลด Heatmap…</p>'}
+  return `<section class="card hr-heatmap" aria-labelledby="dashboard-heatmap-title">
+   <h2 id="dashboard-heatmap-title">Heatmap</h2><p class="muted">คะแนนเฉลี่ยรายด้านตามแผนกของผู้ถูกประเมิน</p>
+   ${table}
   </section>`;
  }
+ function rankingView(rows,byPerson){
+  const title=byPerson?'อันดับบุคคล':'อันดับแผนก',id=byPerson?'person-ranking':'department-ranking';
+  let rank=0,lastScore=null;
+  const body=rows.map((row,i)=>{
+   if(row.overall!==lastScore)rank=i+1;
+   lastScore=row.overall;
+   return `<tr><td class="rank-number">${rank}</td>
+    <th scope="row">${e(byPerson?row.name:row.department)}${byPerson&&row.department?`<small>${e(row.department)}</small>`:''}</th>
+    <td class="rank-score">${row.overall.toFixed(2)}</td><td class="rank-raters">${row.raters.toLocaleString('th-TH')}</td></tr>`;
+  }).join('');
+  return `<section class="card dashboard-ranking" aria-labelledby="${id}">
+   <h2 id="${id}">${title}</h2>
+   ${rows.length?`<div class="ranking-table-wrap"><table class="ranking-table">
+    <thead><tr><th scope="col">อันดับ</th><th scope="col">${byPerson?'ผู้ถูกประเมิน':'แผนก'}</th><th scope="col">คะแนน / 5</th><th scope="col">ผู้ประเมิน</th></tr></thead>
+    <tbody>${body}</tbody></table></div>`:'<p class="muted">ยังไม่มีคะแนนครบทั้ง 3 ด้านในรอบนี้</p>'}
+  </section>`;
+ }
+ function dashboardView(){
+  if(!ready())return setupNotice();
+  if(state.data.dashboard_available!==true)return '<section class="card"><p class="muted">เผยแพร่ Worker รุ่น scores-v3 เพื่อเปิดแดชบอร์ด HR</p></section>';
+  const data=dashboard.data,selected=dashboard.round||round();
+  const months=data?.rounds||[round()],loading=['idle','loading'].includes(dashboard.status);
+  const summary=dashboard.status==='ready'?`
+   <div class="dashboard-counts" role="group" aria-label="จำนวนคนไม่ซ้ำในรอบที่เลือก">
+    <section class="card dashboard-count"><h2>ผู้ส่งการประเมิน</h2><p><strong>${data.counts.raters.toLocaleString('th-TH')}</strong> คน</p></section>
+    <section class="card dashboard-count"><h2>ผู้ถูกประเมิน</h2><p><strong>${data.counts.recipients.toLocaleString('th-TH')}</strong> คน</p></section>
+   </div>
+   ${heatmapView(data)}
+   <div class="dashboard-rankings">${rankingView(data.rankings.people,true)}${rankingView(data.rankings.departments,false)}</div>`
+   : dashboard.status==='error'?'<p class="error" role="alert">'+e(dashboard.error)+'</p>':'<p class="muted" role="status">กำลังโหลดแดชบอร์ด…</p>';
+  return `<div class="hr-dashboard">
+   <div class="card dashboard-toolbar">
+    <div class="field"><label for="dashboard-round">รอบประเมิน</label><select id="dashboard-round">${months.map(r=>`<option value="${e(r)}" ${r===selected?'selected':''}>${e(monthLabel(r))}</option>`).join('')}</select></div>
+    <button class="secondary" id="refresh-dashboard" type="button" ${loading?'disabled':''}>${dashboard.status==='error'?'ลองอีกครั้ง':'โหลดข้อมูลล่าสุด'}</button>
+   </div>
+   ${summary}
+  </div>`;
+ }
  function hrView(page,ui){
-  if(page==='home')return hrHome(ui);
-  if(page==='admin')return ui.head('การเชื่อมต่อ Base','ตรวจตารางและคอลัมน์ที่ใช้บันทึกผลประเมิน','',false)+setupNotice()+(ready()?'<section class="card"><h2>ตารางคะแนนพร้อมใช้งาน</h2><p class="muted">รอบ '+e(monthLabel(round()))+' · ขั้นต่ำ '+state.data.policy.minimum_raters+' ผู้ประเมินต่อด้าน</p><button class="secondary" data-score-reload>ตรวจการเชื่อมต่ออีกครั้ง</button></section>':'');
-  if(page!=='queue')return ui.head('วิเคราะห์','ผลประเมินจาก Lark Base','',false)+heatmapView();
+  if(page==='hr')return ui.head('แดชบอร์ด HR','ภาพรวมการประเมินในแต่ละรอบ','',false)+dashboardView();
+  if(page!=='queue')return hrHome(ui);
   const rows=state.data?.reviews||[];
   return ui.head('อนุมัติคะแนน','คะแนน 1–3 ดาว · เฉพาะ HR','',false)+setupNotice()+(ready()?'<section class="card"><button class="secondary" data-score-reload>โหลดรายการล่าสุด</button>'+rows.map(r=>'<article class="review-case"><div class="row"><div><p class="eyebrow">'+e(r.dimension)+'</p><h3>'+e(r.name)+' · '+e(r.department)+'</h3></div><span class="pill rose">'+r.score+' / 5</span></div><p class="muted">'+e(dateLabel(r.created))+'</p><blockquote>'+e(r.reason)+'</blockquote>'+(r.context?'<p class="muted">โปรเจกต์ '+e(r.context)+'</p>':'')+'<p>'+e(r.status)+'</p>'+(r.status==='รอ HR ตรวจสอบ'&&state.data.round_state!=='released'?'<div class="btn-group"><button class="secondary" data-live-review="'+e(r.record_id)+'" data-decision="approved">อนุมัติ</button><button class="danger" data-live-review="'+e(r.record_id)+'" data-decision="rejected">ไม่อนุมัติ</button></div>':r.note?'<p class="muted">'+e(r.note)+'</p>':'')+'</article>').join('')+(!rows.length?'<div class="empty"><h3>ไม่มีคะแนนที่ต้องตรวจสอบ</h3></div>':'')+'</section>':'');
  }
@@ -161,11 +207,11 @@
   ui.showDialog('<h2 id="modal-title">การแจ้งเตือน</h2>'+body+'<div class="notification-actions"><button class="danger" id="close-live-notifications" type="button">ปิด</button></div>',dialog=>{dialog.querySelector('#close-live-notifications').onclick=()=>{dialog.close();emit();};},'notification-dialog',false);
  }
  function bind(ui){
-  const heatmapRound=document.querySelector('#heatmap-round');
-  if(heatmapRound){
-   heatmapRound.onchange=()=>void loadHeatmap(heatmapRound.value);
-   document.querySelector('#retry-heatmap')?.addEventListener('click',()=>void loadHeatmap(heatmap.round));
-   if(heatmap.status==='idle')void loadHeatmap();
+  const dashboardRound=document.querySelector('#dashboard-round');
+  if(dashboardRound){
+   dashboardRound.onchange=()=>void loadDashboard(dashboardRound.value);
+   document.querySelector('#refresh-dashboard')?.addEventListener('click',()=>void loadDashboard(dashboard.round));
+   if(dashboard.status==='idle')void loadDashboard();
   }
   document.querySelectorAll('[data-score-reload]').forEach(b=>b.onclick=()=>{if(['session_expired','directory_session_missing'].includes(state.code))ui.signOut();else void load();});
   document.querySelector('#setup-live-scores')?.addEventListener('click',async event=>{
@@ -184,7 +230,7 @@
      const field=dialog.querySelector('#live-review-note'),note=field?.value.trim(),error=dialog.querySelector('#live-review-error'),button=dialog.querySelector('#save-live-review');
      if(needsNote&&!note){error.hidden=false;error.textContent=rejected?'กรุณาระบุเหตุผลที่ไม่อนุมัติ':'กรุณาระบุผลตรวจสอบ';field.focus();return;}
      button.disabled=true;
-     try{await root.GlowLogin.request('/hr/reviews/'+encodeURIComponent(id),{method:'POST',body:note?{decision,note}:{decision}});heatmap={status:'idle',data:null,round:'',error:''};dialog.close();await load();ui.toast('บันทึกผลตรวจสอบใน Base แล้ว');}catch(err){button.disabled=false;error.hidden=false;error.textContent=err.message;}
+     try{await root.GlowLogin.request('/hr/reviews/'+encodeURIComponent(id),{method:'POST',body:note?{decision,note}:{decision}});dashboard={status:'idle',data:null,round:'',error:''};dialog.close();await load();ui.toast('บันทึกผลตรวจสอบใน Base แล้ว');}catch(err){button.disabled=false;error.hidden=false;error.textContent=err.message;}
     };
    });
   });

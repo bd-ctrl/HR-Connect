@@ -54,7 +54,7 @@ async function api(path,{token,body,method=body?'POST':'GET',settings=env}={}){
 async function login(key){const id=employees.find(e=>e.record_id===key).fields.เลขบัตรประชาชน;const r=await api('/login',{body:key==='recHR'?{admin_code:id}:{national_id:id}});eq(r.status,200);return r.data.session_token;}
 const payload={target_id:'recB',round:'2026-10',scores:[4,5,4],reasons:['','',''],context:'ทดสอบข้อมูลสมมติ'};
 try{
- eq((await api('/health')).data.version,'scores-v2');eq((await api('/me/state')).status,401);
+ eq((await api('/health')).data.version,'scores-v3');eq((await api('/me/state')).status,401);
  const a=await login('recA'),b=await login('recB'),c=await login('recC'),d=await login('recD');
  eq((await api('/hr/state',{token:a})).status,403);
  const dual=employees.find(row=>row.record_id==='recDual');
@@ -108,29 +108,39 @@ try{
  eq((await api('/assessments',{token:a,body:payload})).status,200);eq(records.length,3);
  eq((await api('/assessments',{token:a,body:{...payload,scores:[5,5,5]}})).status,409);eq(records.length,3);
  const before=await api('/me/state',{token:b});eq(before.data.summary.received,1);eq(before.data.summary.overall,null);eq(before.data.summary.state,'insufficient_data');
- // No HR account has signed in. One complete assessment is immediately visible
- // while the separately labelled average still needs three distinct raters.
- eq(before.data.feedback.length,1);eq(before.data.feedback[0].answers.map(a=>a.score),[4,5,4]);
- eq(Object.keys(before.data.feedback[0]).sort(),['answers','created','round']);
- yes(!JSON.stringify(before.data.feedback).includes('recA')&&!JSON.stringify(before.data.feedback).includes('ทดสอบA'));
+ // The first submission contributes to HR's dashboard. The recipient gets a count-only notice.
+ eq(before.data.feedback,[]);
+ eq(before.data.notifications.reduce((sum,n)=>sum+n.count,0),1);
+ const hr=await login('recHR');
+ const firstDashboard=(await api('/hr/heatmap',{token:hr})).data;
+ eq(firstDashboard.counts,{raters:1,recipients:1});
+ eq(firstDashboard.rows,[{department:'HR',means:[4,5,4]}]);
+ eq(firstDashboard.rankings,{
+  people:[{name:'ทดสอบB',department:'HR',overall:4.33,raters:1}],
+  departments:[{department:'HR',overall:4.33,raters:1}]
+ });
  eq((await api('/me/state?target=recA',{token:b})).status,400);eq((await api('/me/state',{token:a})).data.history.length,1);eq((await api('/me/state',{token:b})).data.history.length,0);
  omitCreatedFields=true;eq((await api('/assessments',{token:c,body:payload})).status,200);
+ eq((await api('/me/state',{token:b})).data.feedback,[]);
  eq((await api('/assessments',{token:d,body:{...payload,scores:[2,5,4],reasons:['สถานการณ์สมมติ','','']}})).status,200);
  // All three answers, including the low score awaiting HR, already exist in Base before HR reads them.
  eq(records.length,9);eq(records.filter(r=>r.fields[F.status]==='รอ HR ตรวจสอบ').length,1);
  const ownPending=(await api('/me/state',{token:d})).data.history[0];
  eq(ownPending.answers.map(a=>a.score),[2,5,4]);eq(ownPending.answers[0].reason,'สถานการณ์สมมติ');
  const pending=await api('/me/state',{token:b});eq(pending.data.summary.received,3);eq(pending.data.summary.overall,null);eq(pending.data.summary.dims[1].mean,5);
- eq(pending.data.feedback.length,3);yes(pending.data.feedback.every(f=>f.answers.every(a=>a.score>=4)));
+ eq(pending.data.feedback.length,3);
+ yes(pending.data.feedback.every(f=>f.answers.map(a=>a.dimension).join('|')==='ความถูกต้อง|การสื่อสาร'));
+ eq(Object.keys(pending.data.feedback[0]).sort(),['answers','created','round']);
  const serialized=JSON.stringify(pending.data);yes(!serialized.includes('สถานการณ์สมมติ')&&!serialized.includes('recA')&&!serialized.includes('rater_id'));
- const hr=await login('recHR');
  const q=await api('/hr/state',{token:hr});eq(q.status,200);eq(q.data.reviews.length,1);yes(!JSON.stringify(q.data).includes('CC_รหัสผู้ประเมิน'));
  eq(q.data.approval_note_optional,true);
+ eq(q.data.dashboard_available,true);
  eq((await api('/hr/heatmap',{token:a})).status,403);
  eq((await api('/hr/heatmap?round=2026-13',{token:hr})).status,400);
  const pendingHeatmap=(await api('/hr/heatmap',{token:hr})).data;
- eq(pendingHeatmap.rows,[{department:'HR',means:[null,5,4]}]);
- yes(!JSON.stringify(pendingHeatmap).includes('rater'));
+ eq(pendingHeatmap.rows,[{department:'HR',means:[4,5,4]}]);
+ eq(pendingHeatmap.counts,{raters:3,recipients:1});
+ yes([records[0].fields[F.rater],payload.context,'สถานการณ์สมมติ','recB','record_id'].every(value=>!JSON.stringify(pendingHeatmap).includes(value)));
  const low=q.data.reviews[0].record_id;
  eq((await api('/hr/reviews/'+low,{token:hr,body:{decision:'approved',note:'ห้ามแก้รอบปิด'},settings:{...env,ROUND_STATE:'released'}})).status,409);
  eq((await api('/hr/reviews/'+low,{token:a,body:{decision:'approved',note:'ผลทดสอบ'}})).status,403);
@@ -151,13 +161,31 @@ try{
  eq((await api('/hr/reviews/'+rejectCase.record_id,{token:hr,body:{decision:'rejected',note:'ไม่ใช้คะแนนด้านนี้ในการคำนวณ'}})).status,200);
  const rejected=(await api('/me/state',{token:c,settings:{...env,MIN_RATERS:'1'}})).data.summary;
  eq(rejected.overall,null);eq(rejected.dims[1].mean,5);
- yes((await api('/me/state',{token:c})).data.feedback.every(f=>f.answers.every(a=>a.score>=4)));
- eq((await api('/hr/heatmap',{token:hr})).data.rows.find(row=>row.department==='BA').means,[null,null,null]);
+ eq((await api('/me/state',{token:c})).data.feedback,[]);
+ const partialDashboard=(await api('/hr/heatmap',{token:hr})).data;
+ eq(partialDashboard.rows.find(row=>row.department==='BA').means,[null,5,4]);
+ eq(partialDashboard.counts,{raters:3,recipients:2});
+ yes(!partialDashboard.rankings.departments.some(row=>row.department==='BA'));
  const allLow={...payload,target_id:'recD',scores:[2,3,1],reasons:['เหตุผลจำลองหนึ่ง','เหตุผลจำลองสอง','เหตุผลจำลองสาม']};
  eq((await api('/assessments',{token:b,body:allLow})).status,200);
  const waitingLow=(await api('/me/state',{token:d})).data;
  eq(waitingLow.feedback,[]);eq(waitingLow.notifications,[]);
  yes((await api('/me/state',{token:b})).data.history.some(h=>h.target==='recD'));
+
+ const sameDepartment={...payload,target_id:'recD',scores:[5,4,5]};
+ eq((await api('/assessments',{token:a,body:sameDepartment})).status,200);
+ eq((await api('/assessments',{token:c,body:{...sameDepartment,scores:[4,4,4]}})).status,200);
+ const multiple=(await api('/hr/heatmap',{token:hr})).data;
+ eq(multiple.counts,{raters:4,recipients:3});
+ eq(multiple.rows.find(row=>row.department==='BA').means,[4.5,4.25,4.25]);
+ eq(multiple.rankings.people.map(row=>[row.name,row.overall,row.raters]),[['ทดสอบD',4.33,2],['ทดสอบB',4.11,3]]);
+ eq(multiple.rankings.departments.map(row=>[row.department,row.overall,row.raters]),[['BA',4.33,2],['HR',4.11,3]]);
+ const historicalRound='2025-12';
+ eq((await api('/assessments',{token:a,body:{...payload,round:historicalRound},settings:{...env,EVALUATION_ROUND:historicalRound}})).status,200);
+ const historical=(await api('/hr/heatmap?round='+historicalRound,{token:hr})).data;
+ eq(historical.counts,{raters:1,recipients:1});eq(historical.rows,[{department:'HR',means:[4,5,4]}]);
+ eq((await api('/hr/heatmap',{token:hr})).data.rounds,['2026-10',historicalRound]);
+ eq((await api('/me/state',{token:b})).data.feedback.filter(row=>row.round===historicalRound),[]);
 
  const dup=structuredClone(records[0]);dup.record_id='recDuplicate';records.push(dup);eq((await api('/me/state',{token:b})).data.summary.received,3);eq((await api('/me/state',{token:b})).data.feedback.length,3);
  employees[0].fields.สถานะการเป็นพนักงาน='พ้นสภาพ';eq((await api('/me/state',{token:a})).status,403);employees[0].fields.สถานะการเป็นพนักงาน='พนักงาน';

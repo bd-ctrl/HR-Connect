@@ -20,12 +20,18 @@ function fixture(mode = 'success', accountDrafts = new Map()) {
   let clock = Date.now(), resolveDirectory, resolveSave, resolveHistory, historyReads=0, history=mode==='already-assessed'?[{target:'rec-project',name:'โครงการใหม่',department:'Project Co',round:'2026-10',created:'2026-10-29T08:00:00Z'}]:[],setupPrepared=false;
   if(mode==='sent-details')history=[
     {target:'rec-hr',name:'ผู้ร่วมงานสมมติ HR',department:'HR & Admin',round:'2026-10',created:'2026-10-29T08:00:00Z',context:'งานประสานสมมติ',answers:['ความเร็ว','ความถูกต้อง','การสื่อสาร'].map((dimension,i)=>({dimension,score:[3,4,5][i],reason:i===0?'<img src=x onerror="bad()">':''}))},
-    {target:'rec-project',name:'ผู้ร่วมงานสมมติ Project',department:'Project Co',round:'2026-09',created:'2026-09-29T08:00:00Z',context:'',answers:['ความเร็ว','ความถูกต้อง','การสื่อสาร'].map(dimension=>({dimension,score:4,reason:''}))}
+    {target:'rec-project',name:'ผู้ร่วมงานสมมติ Project',department:'Project Co',round:'2025-10',created:'2025-10-29T08:00:00Z',context:'',answers:['ความเร็ว','ความถูกต้อง','การสื่อสาร'].map(dimension=>({dimension,score:4,reason:''}))}
   ];
   const isHR=mode.startsWith('hr-');
+  const feedbackSize={'instant-feedback':1,'two-feedback':2,'three-feedback':3}[mode]||0;
+  const feedback=Array.from({length:feedbackSize},(_,i)=>({
+    round:'2026-10',created:`2026-10-${27+i}T08:00:00Z`,
+    answers:[{dimension:'ความถูกต้อง',score:4},{dimension:'การสื่อสาร',score:5},...(i===0?[{dimension:'ความเร็ว',score:5}]:[])]
+  }));
+  if(mode==='hr-dashboard'||mode==='hr-legacy')setupPrepared=true;
   class TestDate extends Date {constructor(...args){super(...(args.length?args:[clock]));}static now(){return clock;}}
   const context = {
-    document:{querySelector:selector=>selector==='#heatmap-round'&&!q('#app').innerHTML.includes('id="heatmap-round"')?null:q(selector),querySelectorAll:selector=>selector==='[data-history-round]'?[...q('#app').innerHTML.matchAll(/data-history-round="([^"]+)"/g)].map(([,round])=>{const b=q('[data-history-round="'+round+'"]');b.dataset={historyRound:round};return b;}):[],addEventListener(){}},
+    document:{querySelector:selector=>selector==='#dashboard-round'&&!q('#app').innerHTML.includes('id="dashboard-round"')?null:q(selector),querySelectorAll:selector=>selector==='[data-history-round]'?[...q('#app').innerHTML.matchAll(/data-history-round="([^"]+)"/g)].map(([,round])=>{const b=q('[data-history-round="'+round+'"]');b.dataset={historyRound:round};return b;}):[],addEventListener(){}},
     window:{scrollTo(){}},
     localStorage:{getItem:key=>storage.get(key)??null,setItem:(key,value)=>storage.set(key,value)},
     matchMedia:()=>({matches:true}),Date:TestDate,
@@ -42,7 +48,19 @@ function fixture(mode = 'success', accountDrafts = new Map()) {
         ok:true,employee:{id:'rec-self',nickname:isHR?'ADMIN':mode==='nickname-escape'?'<img src=x onerror="bad()">':'ผู้ทดสอบ',department:isHR?'HR':'BA',role:isHR?'admin':'employee'},
         ...(mode==='no-session'?{}:{session_token:'test-session-token',expires_in:900})
       });
-      if(url.endsWith('/hr/state'))return Response.json({ok:true,round:'2026-10',policy:{version:'test',minimum_raters:3},reviews:[],storage_private:true,score_table_id:'tblScores',setup_required:mode==='hr-wrong-type'||!setupPrepared||mode==='hr-setup-stale',missing:setupPrepared&&mode!=='hr-setup-stale'?[]:['CC_รหัสผู้รับ'],invalid_fields:mode==='hr-wrong-type'?['คะแนนดาว']:[]});
+      if(url.endsWith('/hr/state'))return Response.json({ok:true,round:'2026-10',policy:{version:'test',minimum_raters:3},reviews:[],storage_private:true,dashboard_available:mode==='hr-dashboard',score_table_id:'tblScores',setup_required:mode==='hr-wrong-type'||!setupPrepared||mode==='hr-setup-stale',missing:setupPrepared&&mode!=='hr-setup-stale'?[]:['CC_รหัสผู้รับ'],invalid_fields:mode==='hr-wrong-type'?['คะแนนดาว']:[]});
+      if(new URL(url).pathname==='/hr/heatmap'){
+        const round=new URL(url).searchParams.get('round')||'2026-10',current=round==='2026-10';
+        return Response.json({
+          ok:true,round,rounds:['2026-10','2025-10'],dimensions:['ความเร็ว','ความถูกต้อง','การสื่อสาร'],
+          counts:current?{raters:1,recipients:2}:{raters:0,recipients:0},
+          rows:current?[{department:'BA',means:[4,4,4]},{department:'HR',means:[5,5,4]}]:[],
+          rankings:{
+            people:current?[{name:'ชื่อทดสอบ',department:'HR',overall:4.67,raters:1},{name:'<img src=x>',department:'BA',overall:4,raters:1}]:[],
+            departments:current?[{department:'HR',overall:4.67,raters:1},{department:'BA',overall:4,raters:1}]:[]
+          }
+        });
+      }
       if(url.endsWith('/hr/setup')){setupPrepared=true;return Response.json({ok:true,created:['CC_รหัสผู้รับ'],storage_private:true,ready:true});}
       if(url.includes('/me/drafts/')){
         const target=url.split('/').at(-1),draft=accountDrafts.get(target);
@@ -62,7 +80,7 @@ function fixture(mode = 'success', accountDrafts = new Map()) {
         if(mode==='api-missing')return Response.json({ok:false,error:'not_found'},{status:404});
         if(mode==='score-setup-required')return Response.json({ok:false,error:'score_setup_required',message:'HR ต้องเตรียมคอลัมน์ตารางคะแนนก่อนใช้งาน'},{status:503});
         if(mode==='score-private')return Response.json({ok:false,error:'score_storage_not_private',message:'ระบบคะแนนยังไม่พร้อมใช้งาน กรุณาให้ HR ตรวจการจำกัดสิทธิ์ Base'},{status:503});
-        return Response.json({ok:true,round:'2026-10',round_state:mode==='closed-round'?'review':'open',draft_sync:mode==='draft-sync',policy:{version:'test',minimum_raters:3},summary:{round:'2026-10',received:mode==='instant-feedback'?1:0,state:mode==='instant-feedback'?'insufficient_data':'no_evaluations',overall:null,dims:[0,1,2].map(()=>({mean:null}))},previous:{round:'2026-09',overall:null,dims:[0,1,2].map(()=>({mean:null}))},feedback:mode==='instant-feedback'?[{round:'2026-10',created:'2026-10-29T08:00:00Z',answers:[{dimension:'ความเร็ว',score:4},{dimension:'การสื่อสาร',score:5}]}]:[],history,notifications:[]});
+        return Response.json({ok:true,round:'2026-10',round_state:mode==='closed-round'?'review':'open',draft_sync:mode==='draft-sync',policy:{version:'test',minimum_raters:3},summary:{round:'2026-10',received:feedbackSize,state:feedbackSize===3?'awaiting_review':feedbackSize?'insufficient_data':'no_evaluations',overall:null,dims:[0,1,2].map(()=>({mean:null}))},previous:{round:'2026-09',overall:null,dims:[0,1,2].map(()=>({mean:null}))},feedback,history,notifications:[]});
       }
       if(url.endsWith('/assessments')){
         assert.equal(options.headers.Authorization,'Bearer test-session-token');
@@ -136,7 +154,7 @@ ok(!f.q('#app').innerHTML.includes('id="collaborated"'));
 f.run("form.scores=[4,4,5];form.reasons=['','',''];form.collaborated=false");
 await f.q('#review-form').handlers.click();
 ok(f.run('stage')==='review');
-ok(f.q('#app').innerHTML.includes('ผู้รับเห็นคะแนน 4–5 ดาวทันที'));
+ok(f.q('#app').innerHTML.includes('ผู้รับเห็นคะแนนเมื่อผู้ประเมินในด้านนั้นครบเกณฑ์'));
 ok(f.q('#app').innerHTML.includes('ยืนยันส่งการประเมิน'));
 f.run('showDialog=content=>{globalThis.savedDialog=content}');
 await f.q('#submit-form').handlers.click();
@@ -217,17 +235,17 @@ ok(lateSetup.run("db.drafts['rec-project'].scores.join(',')")==='5,5,5');
 ok(lateSetup.run('Scores.history().length')===0&&lateSetup.run('form.target')==='rec-project');
 
 // HR sees the actual missing names; incompatible fields block preparation before mutation.
-const hrSetup=fixture('hr-setup-required');await hrSetup.login();await tick();hrSetup.run("go('admin')");
-ok(hrSetup.q('#app').innerHTML.includes('การเชื่อมต่อ Base'));
+const hrSetup=fixture('hr-setup-required');await hrSetup.login();await tick();
+ok(!hrSetup.q('#app').innerHTML.includes('เชื่อมต่อ Base'));
 ok(hrSetup.q('#app').innerHTML.includes('คอลัมน์ที่ยังขาด (1)')&&hrSetup.q('#app').innerHTML.includes('CC_รหัสผู้รับ'));
 ok(hrSetup.q('#app').innerHTML.includes('tblScores')&&hrSetup.q('#app').innerHTML.includes('id="setup-live-scores"'));
 await hrSetup.q('#setup-live-scores').handlers.click({currentTarget:hrSetup.q('#setup-live-scores')});
-ok(hrSetup.q('#app').innerHTML.includes('ตารางคะแนนพร้อมใช้งาน')&&hrSetup.run('Scores.ready()'));
+ok(!hrSetup.q('#app').innerHTML.includes('id="setup-live-scores"')&&hrSetup.run('Scores.ready()'));
 ok(hrSetup.calls.filter(call=>call.url.endsWith('/hr/setup')).length===1);
-const wrongTypeUI=fixture('hr-wrong-type');await wrongTypeUI.login();await tick();wrongTypeUI.run("go('admin')");
+const wrongTypeUI=fixture('hr-wrong-type');await wrongTypeUI.login();await tick();wrongTypeUI.run("go('queue')");
 ok(wrongTypeUI.q('#app').innerHTML.includes('กรุณาตรวจชนิดข้อมูล')&&wrongTypeUI.q('#app').innerHTML.includes('คะแนนดาว'));
 ok(!wrongTypeUI.q('#app').innerHTML.includes('id="setup-live-scores"')&&!wrongTypeUI.run('Scores.ready()'));
-const staleSetup=fixture('hr-setup-stale');await staleSetup.login();await tick();staleSetup.run("go('admin')");
+const staleSetup=fixture('hr-setup-stale');await staleSetup.login();await tick();
 await staleSetup.q('#setup-live-scores').handlers.click({currentTarget:staleSetup.q('#setup-live-scores')});
 ok(!staleSetup.run('Scores.ready()')&&staleSetup.q('#toast').textContent.includes('ยังตรวจยืนยัน'));
 
@@ -296,13 +314,19 @@ const greetingRefresh=fixture();greetingRefresh.setTime('2026-11-05T10:59:00Z');
 greetingRefresh.setTime('2026-11-05T11:01:00Z');greetingRefresh.run("document.visibilityState='visible';refreshScoresWhenVisible()");await tick();ok(greetingRefresh.q('#app').innerHTML.includes('ได้เวลาเลิกงานแล้ว กลับบ้านกัน ผู้ทดสอบ'));
 const escapedGreeting=fixture('nickname-escape');await escapedGreeting.login();await tick();ok(escapedGreeting.q('#app').innerHTML.includes('&lt;img')&&!escapedGreeting.q('#app').innerHTML.includes('<img src=x'));
 const instant=fixture('instant-feedback');await instant.login();await tick();
-ok(instant.q('#app').innerHTML.includes('ฟีดแบ็กที่ได้รับ')&&instant.q('#app').innerHTML.includes('★</span> 4 / 5')&&instant.q('#app').innerHTML.includes('★</span> 5 / 5'));
+ok(!instant.q('#app').innerHTML.includes('ฟีดแบ็กที่ได้รับ'));
 ok(instant.run('Scores.data().summary.overall')===null);
 ok(!instant.calls.some(c=>c.url.includes('/hr/')));
 instant.run("document.visibilityState='visible';refreshScoresWhenVisible()");
-ok(instant.run("Scores.status()==='ready'")&&instant.q('#app').innerHTML.includes('★</span> 5 / 5'));
+ok(instant.run("Scores.status()==='ready'")&&!instant.q('#app').innerHTML.includes('ฟีดแบ็กที่ได้รับ'));
 await tick();
 ok(instant.calls.filter(c=>c.url.endsWith('/me/state')).length===2);
+const twoFeedback=fixture('two-feedback');await twoFeedback.login();await tick();
+ok(!twoFeedback.q('#app').innerHTML.includes('ฟีดแบ็กที่ได้รับ'));
+const threeFeedback=fixture('three-feedback');await threeFeedback.login();await tick();
+const section=threeFeedback.q('#app').innerHTML.match(/<section class="card received-feedback">.*?<\/section>/)?.[0];
+ok(section?.includes('ฟีดแบ็กที่ได้รับ')&&section.includes('★</span> 4 / 5')&&section.includes('★</span> 5 / 5'));
+ok(section.includes('ความถูกต้อง')&&section.includes('การสื่อสาร')&&!section.includes('ความเร็ว'));
 
 const receiptHistory=fixture('history-read-fails');await receiptHistory.login();await tick();
 receiptHistory.run("go('rate')");await tick();
@@ -322,15 +346,32 @@ let historyHtml=sentDetails.q('#app').innerHTML;
 ok(historyHtml.includes('data-history-round="all" aria-pressed="true"')&&!historyHtml.includes('<select id="history-round"'));
 ok((historyHtml.match(/class="sent-history-entry"/g)||[]).length===2&&(historyHtml.match(/class="sent-history-dimension"/g)||[]).length===6);
 ok(historyHtml.includes('3 / 5')&&historyHtml.includes('4 / 5')&&historyHtml.includes('5 / 5'));
-ok(historyHtml.includes('assets/avatars/star-hr.webp')&&historyHtml.includes('assets/avatars/star-operations.webp')&&!historyHtml.includes('class="avatar"'));
+ok(!historyHtml.includes('assets/avatars/')&&!historyHtml.includes('class="avatar"'));
+ok(historyHtml.includes('aria-label="พ.ศ. 2569"')&&historyHtml.includes('aria-label="พ.ศ. 2568"'));
+ok(/data-history-round="all"[^>]+><svg/.test(historyHtml)&&!historyHtml.includes('ทุกเดือน'));
 ok(historyHtml.includes('งานประสานสมมติ')&&historyHtml.includes('&lt;img src=x')&&!historyHtml.includes('<img src=x'));
-await sentDetails.q('[data-history-round="2026-09"]').onclick();historyHtml=sentDetails.q('#app').innerHTML;
-ok(historyHtml.includes('data-history-round="2026-09" aria-pressed="true"')&&!historyHtml.includes('ผู้ร่วมงานสมมติ HR')&&historyHtml.includes('ผู้ร่วมงานสมมติ Project'));
+await sentDetails.q('[data-history-round="2025-10"]').onclick();historyHtml=sentDetails.q('#app').innerHTML;
+ok(historyHtml.includes('data-history-round="2025-10" aria-pressed="true"')&&!historyHtml.includes('ผู้ร่วมงานสมมติ HR')&&historyHtml.includes('ผู้ร่วมงานสมมติ Project'));
 ok((historyHtml.match(/class="sent-history-dimension"/g)||[]).length===3);
 await sentDetails.q('[data-history-round="all"]').onclick();ok(sentDetails.q('#app').innerHTML.includes('ผู้ร่วมงานสมมติ HR'));
 const oldHistory=fixture('already-assessed');await oldHistory.login();await tick();oldHistory.run("go('results')");
 ok(oldHistory.q('#app').innerHTML.includes('ส่งแล้ว')&&!oldHistory.q('#app').innerHTML.includes('sent-score'));
+ok(oldHistory.q('#app').innerHTML.includes('aria-hidden="true">พ.ศ. 2569</span>'));
+sentDetails.run("showDialog=html=>{globalThis.logoutHtml=html};$('#logout').onclick()");
+ok(/id="cancel-logout"[^>]*><svg/.test(sentDetails.run('logoutHtml'))&&/id="confirm-logout"[^>]*><svg/.test(sentDetails.run('logoutHtml')));
 ok(!sentDetails.run('directoryNotice()').includes('รายชื่อจากทะเบียนพนักงาน'));
+
+const hrDashboard=fixture('hr-dashboard');await hrDashboard.login();await tick();hrDashboard.run("go('hr')");await tick();
+const dashboardHtml=hrDashboard.q('#app').innerHTML;
+ok(dashboardHtml.includes('แดชบอร์ด HR')&&!dashboardHtml.includes('เชื่อมต่อ Base'));
+ok(dashboardHtml.includes('ผู้ส่งการประเมิน</h2><p><strong>1</strong>')&&dashboardHtml.includes('ผู้ถูกประเมิน</h2><p><strong>2</strong>'));
+ok(dashboardHtml.includes('Heatmap')&&dashboardHtml.includes('4.00</td>')&&dashboardHtml.includes('อันดับบุคคล')&&dashboardHtml.includes('อันดับแผนก'));
+ok(dashboardHtml.includes('&lt;img src=x&gt;')&&!dashboardHtml.includes('<img src=x>'));
+hrDashboard.q('#dashboard-round').value='2025-10';hrDashboard.q('#dashboard-round').onchange();await tick();
+ok(hrDashboard.calls.some(c=>c.url.endsWith('/hr/heatmap?round=2025-10')));
+ok(hrDashboard.q('#app').innerHTML.includes('ผู้ส่งการประเมิน</h2><p><strong>0</strong>')&&!hrDashboard.q('#app').innerHTML.includes('ชื่อทดสอบ'));
+const legacyDashboard=fixture('hr-legacy');await legacyDashboard.login();await tick();legacyDashboard.run("go('hr')");await tick();
+ok(legacyDashboard.q('#app').innerHTML.includes('Worker รุ่น scores-v3')&&!legacyDashboard.calls.some(c=>c.url.includes('/hr/heatmap')));
 
 const rolePicker=fixture('dual-role');
 await rolePicker.login();
