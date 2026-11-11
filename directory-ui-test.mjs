@@ -6,14 +6,14 @@ const read = name => readFileSync(new URL(name, import.meta.url), 'utf8');
 let checks = 0;
 const ok = value => {assert.ok(value);checks++;};
 
-function fixture(mode = 'success') {
+function fixture(mode = 'success', accountDrafts = new Map()) {
   const elements = new Map(), storage = new Map(), calls = [];
   const q = selector => {
     if (!elements.has(selector)) elements.set(selector, {
       innerHTML:'',value:'',textContent:'',hidden:true,disabled:false,
       handlers:{},classList:{add(){},remove(){}},
       addEventListener(name, fn){this.handlers[name]=fn;},
-      setAttribute(){},removeAttribute(){},focus(){this.focused=true;},scrollIntoView(){this.scrolled=true;}
+      setAttribute(){},removeAttribute(){},remove(){},focus(){this.focused=true;},scrollIntoView(){this.scrolled=true;}
     });
     return elements.get(selector);
   };
@@ -25,19 +25,34 @@ function fixture(mode = 'success') {
   const isHR=mode.startsWith('hr-');
   class TestDate extends Date {constructor(...args){super(...(args.length?args:[clock]));}static now(){return clock;}}
   const context = {
-    document:{querySelector:q,querySelectorAll:selector=>selector==='[data-history-round]'?[...q('#app').innerHTML.matchAll(/data-history-round="([^"]+)"/g)].map(([,round])=>{const b=q('[data-history-round="'+round+'"]');b.dataset={historyRound:round};return b;}):[],addEventListener(){}},
+    document:{querySelector:selector=>selector==='#heatmap-round'&&!q('#app').innerHTML.includes('id="heatmap-round"')?null:q(selector),querySelectorAll:selector=>selector==='[data-history-round]'?[...q('#app').innerHTML.matchAll(/data-history-round="([^"]+)"/g)].map(([,round])=>{const b=q('[data-history-round="'+round+'"]');b.dataset={historyRound:round};return b;}):[],addEventListener(){}},
     window:{scrollTo(){}},
     localStorage:{getItem:key=>storage.get(key)??null,setItem:(key,value)=>storage.set(key,value)},
     matchMedia:()=>({matches:true}),Date:TestDate,
     AbortSignal,Response,structuredClone,setTimeout:()=>0,clearTimeout(){},
     fetch:async (url, options) => {
       calls.push({url,options});
+      if(url.endsWith('/login')&&mode==='dual-role'){
+        const body=JSON.parse(options.body);
+        assert.equal(body.admin_code,'0000911111111');
+        if(!body.role)return Response.json({ok:true,role_selection_required:true,roles:['employee','admin']});
+        return Response.json({ok:true,employee:{id:'rec-self',nickname:'ทดสอบบทบาท',department:'HR',role:body.role},session_token:'test-session-token',expires_in:900});
+      }
       if(url.endsWith('/login'))return Response.json({
         ok:true,employee:{id:'rec-self',nickname:isHR?'ADMIN':mode==='nickname-escape'?'<img src=x onerror="bad()">':'ผู้ทดสอบ',department:isHR?'HR':'BA',role:isHR?'admin':'employee'},
         ...(mode==='no-session'?{}:{session_token:'test-session-token',expires_in:900})
       });
       if(url.endsWith('/hr/state'))return Response.json({ok:true,round:'2026-10',policy:{version:'test',minimum_raters:3},reviews:[],storage_private:true,score_table_id:'tblScores',setup_required:mode==='hr-wrong-type'||!setupPrepared||mode==='hr-setup-stale',missing:setupPrepared&&mode!=='hr-setup-stale'?[]:['CC_รหัสผู้รับ'],invalid_fields:mode==='hr-wrong-type'?['คะแนนดาว']:[]});
       if(url.endsWith('/hr/setup')){setupPrepared=true;return Response.json({ok:true,created:['CC_รหัสผู้รับ'],storage_private:true,ready:true});}
+      if(url.includes('/me/drafts/')){
+        const target=url.split('/').at(-1),draft=accountDrafts.get(target);
+        if(options.method==='GET')return Response.json({ok:true,round:'2026-10',draft:draft||null});
+        const body=JSON.parse(options.body);
+        if(body.revision!==(draft?.revision||0))return Response.json({ok:false,error:'draft_conflict'},{status:409});
+        const saved={...body,revision:body.revision+1};
+        accountDrafts.set(target,saved);
+        return Response.json({ok:true,round:'2026-10',revision:saved.revision});
+      }
       if(url.endsWith('/me/state')){
         historyReads++;
         if(mode==='pending-history'&&historyReads>1)await new Promise(resolve=>{resolveHistory=resolve;});
@@ -47,7 +62,7 @@ function fixture(mode = 'success') {
         if(mode==='api-missing')return Response.json({ok:false,error:'not_found'},{status:404});
         if(mode==='score-setup-required')return Response.json({ok:false,error:'score_setup_required',message:'HR ต้องเตรียมคอลัมน์ตารางคะแนนก่อนใช้งาน'},{status:503});
         if(mode==='score-private')return Response.json({ok:false,error:'score_storage_not_private',message:'ระบบคะแนนยังไม่พร้อมใช้งาน กรุณาให้ HR ตรวจการจำกัดสิทธิ์ Base'},{status:503});
-        return Response.json({ok:true,round:'2026-10',round_state:mode==='closed-round'?'review':'open',policy:{version:'test',minimum_raters:3},summary:{round:'2026-10',received:mode==='instant-feedback'?1:0,state:mode==='instant-feedback'?'insufficient_data':'no_evaluations',overall:null,dims:[0,1,2].map(()=>({mean:null}))},previous:{round:'2026-09',overall:null,dims:[0,1,2].map(()=>({mean:null}))},feedback:mode==='instant-feedback'?[{round:'2026-10',created:'2026-10-29T08:00:00Z',answers:[{dimension:'ความเร็ว',score:4},{dimension:'การสื่อสาร',score:5}]}]:[],history,notifications:[]});
+        return Response.json({ok:true,round:'2026-10',round_state:mode==='closed-round'?'review':'open',draft_sync:mode==='draft-sync',policy:{version:'test',minimum_raters:3},summary:{round:'2026-10',received:mode==='instant-feedback'?1:0,state:mode==='instant-feedback'?'insufficient_data':'no_evaluations',overall:null,dims:[0,1,2].map(()=>({mean:null}))},previous:{round:'2026-09',overall:null,dims:[0,1,2].map(()=>({mean:null}))},feedback:mode==='instant-feedback'?[{round:'2026-10',created:'2026-10-29T08:00:00Z',answers:[{dimension:'ความเร็ว',score:4},{dimension:'การสื่อสาร',score:5}]}]:[],history,notifications:[]});
       }
       if(url.endsWith('/assessments')){
         assert.equal(options.headers.Authorization,'Bearer test-session-token');
@@ -85,7 +100,7 @@ function fixture(mode = 'success') {
     context,q,calls,storage,
     run:code=>vm.runInContext(code,context),
     async login(){
-      q('#employee-code').value='1111111111111';
+      q('#employee-code').value=mode==='dual-role'?'0000911111111':'1111111111111';
       await q('#employee-login').onsubmit({preventDefault(){}});
     },
     expire(){clock+=16*60000;},
@@ -203,14 +218,14 @@ ok(lateSetup.run('Scores.history().length')===0&&lateSetup.run('form.target')===
 
 // HR sees the actual missing names; incompatible fields block preparation before mutation.
 const hrSetup=fixture('hr-setup-required');await hrSetup.login();await tick();hrSetup.run("go('admin')");
-ok(hrSetup.q('#app').innerHTML.includes('ตั้งค่าคะแนน'));
+ok(hrSetup.q('#app').innerHTML.includes('การเชื่อมต่อ Base'));
 ok(hrSetup.q('#app').innerHTML.includes('คอลัมน์ที่ยังขาด (1)')&&hrSetup.q('#app').innerHTML.includes('CC_รหัสผู้รับ'));
 ok(hrSetup.q('#app').innerHTML.includes('tblScores')&&hrSetup.q('#app').innerHTML.includes('id="setup-live-scores"'));
 await hrSetup.q('#setup-live-scores').handlers.click({currentTarget:hrSetup.q('#setup-live-scores')});
-ok(hrSetup.q('#app').innerHTML.includes('เชื่อมตารางคะแนนแล้ว')&&hrSetup.run('Scores.ready()'));
+ok(hrSetup.q('#app').innerHTML.includes('ตารางคะแนนพร้อมใช้งาน')&&hrSetup.run('Scores.ready()'));
 ok(hrSetup.calls.filter(call=>call.url.endsWith('/hr/setup')).length===1);
 const wrongTypeUI=fixture('hr-wrong-type');await wrongTypeUI.login();await tick();wrongTypeUI.run("go('admin')");
-ok(wrongTypeUI.q('#app').innerHTML.includes('ชนิดข้อมูลไม่รองรับ')&&wrongTypeUI.q('#app').innerHTML.includes('คะแนนดาว'));
+ok(wrongTypeUI.q('#app').innerHTML.includes('กรุณาตรวจชนิดข้อมูล')&&wrongTypeUI.q('#app').innerHTML.includes('คะแนนดาว'));
 ok(!wrongTypeUI.q('#app').innerHTML.includes('id="setup-live-scores"')&&!wrongTypeUI.run('Scores.ready()'));
 const staleSetup=fixture('hr-setup-stale');await staleSetup.login();await tick();staleSetup.run("go('admin')");
 await staleSetup.q('#setup-live-scores').handlers.click({currentTarget:staleSetup.q('#setup-live-scores')});
@@ -314,7 +329,36 @@ ok(historyHtml.includes('data-history-round="2026-09" aria-pressed="true"')&&!hi
 ok((historyHtml.match(/class="sent-history-dimension"/g)||[]).length===3);
 await sentDetails.q('[data-history-round="all"]').onclick();ok(sentDetails.q('#app').innerHTML.includes('ผู้ร่วมงานสมมติ HR'));
 const oldHistory=fixture('already-assessed');await oldHistory.login();await tick();oldHistory.run("go('results')");
-ok(oldHistory.q('#app').innerHTML.includes('รายละเอียดคะแนนจะแสดงเมื่อพร้อม')&&!oldHistory.q('#app').innerHTML.includes(' / 5'));
+ok(oldHistory.q('#app').innerHTML.includes('ส่งแล้ว')&&!oldHistory.q('#app').innerHTML.includes('sent-score'));
 ok(!sentDetails.run('directoryNotice()').includes('รายชื่อจากทะเบียนพนักงาน'));
+
+const rolePicker=fixture('dual-role');
+await rolePicker.login();
+ok(!rolePicker.run('GlowLogin.active()')&&rolePicker.q('#app').innerHTML.includes('เลือกรูปแบบการเข้าสู่ระบบ'));
+ok(!rolePicker.q('#app').innerHTML.includes('0000911111111'));
+rolePicker.q('#role-employee').onclick();
+await tick();
+ok(rolePicker.run('GlowLogin.profile().role')==='employee'&&rolePicker.calls.some(call=>call.url.endsWith('/me/state')));
+rolePicker.run('signOut()');
+await rolePicker.login();
+rolePicker.q('#role-admin').onclick();
+await tick();
+ok(rolePicker.run('GlowLogin.profile().role')==='admin'&&rolePicker.calls.some(call=>call.url.endsWith('/hr/state')));
+ok(![...rolePicker.storage.values()].some(v=>v.includes('0000911111111')));
+
+const syncedDrafts=new Map();
+const firstDevice=fixture('draft-sync',syncedDrafts),otherDevice=fixture('draft-sync',syncedDrafts);
+for(const device of [firstDevice,otherDevice]){
+ await device.login();await tick();device.run("go('rate')");await tick();
+ await device.run("start('rec-project')");
+}
+firstDevice.q('#context').value='โปรเจกต์ข้ามอุปกรณ์';
+firstDevice.run('form.scores=[4,"",3]');
+await firstDevice.run('saveDraft()');
+ok(firstDevice.q('#toast').textContent.includes('บันทึกร่างไว้ในบัญชีแล้ว'));
+otherDevice.run("go('rate')");
+await otherDevice.run("start('rec-project')");
+ok(otherDevice.run('form.context')==='โปรเจกต์ข้ามอุปกรณ์'&&otherDevice.run('form.scores.join(",")')==='4,,3');
+ok(firstDevice.calls.filter(call=>call.url.includes('/me/drafts/')).length===2);
 console.log(`Directory and scores UI: ${checks} checks passed with synthetic responses; no live employee data used.`);
 

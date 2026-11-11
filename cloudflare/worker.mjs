@@ -52,6 +52,12 @@ function textValue(value) {
   return textValue(value.text ?? value.name ?? value.value ?? "");
 }
 
+function accountRoles(value) {
+  const labels = textValue(value).toLowerCase().split(/[,;/|+]|\s+และ\s+|\s+and\s+/).map(label => label.trim());
+  const admin = labels.includes("admin");
+  return { admin, employee: !admin || labels.includes("user") || labels.includes("employee") };
+}
+
 async function larkJSON(url, options) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 10000);
@@ -101,7 +107,7 @@ async function searchRecords(env, fields, conditions, limit = 10000, tableId = e
       body: JSON.stringify({
         field_names: [...new Set(fields)],
         automatic_fields: false,
-        filter: { conjunction: "and", conditions }
+        ...(conditions.length ? { filter: { conjunction: "and", conditions } } : {})
       })
     });
     if (!Array.isArray(data.data?.items)) {
@@ -180,8 +186,7 @@ async function login(request, env, cfg) {
   }
   const lookupField = admin && cfg.employeeId ? cfg.employeeId : cfg.id;
   const lookupValue = admin && cfg.employeeId ? code.slice(5) : code;
-  const fields = [lookupField, cfg.nickname, cfg.department, cfg.status];
-  if (admin) fields.push(cfg.role);
+  const fields = [lookupField, cfg.nickname, cfg.department, cfg.status, cfg.role];
   const records = await searchRecords(env, fields, [{ field_name: lookupField, operator: "is", value: [lookupValue] }], 2);
   if (records.length === 0) throw new APIError(401, "not_found", "ไม่สามารถยืนยันข้อมูลได้ กรุณาตรวจสอบหรือติดต่อ HR");
   if (records.length > 1) throw new APIError(409, "duplicate_employee", "ข้อมูลซ้ำ กรุณาติดต่อ HR ตรวจสอบ");
@@ -190,38 +195,41 @@ async function login(request, env, cfg) {
   if (textValue(fieldsData[lookupField]) !== lookupValue || textValue(fieldsData[cfg.status]) !== cfg.active) {
     throw new APIError(403, "inactive_employee", "ไม่สามารถใช้งานบัญชีนี้ได้ กรุณาติดต่อ HR");
   }
-  if (admin && (textValue(fieldsData[cfg.role]).toLowerCase() !== "admin" || textValue(fieldsData[cfg.nickname]).toUpperCase() !== "ADMIN")) {
+  const roles = accountRoles(fieldsData[cfg.role]);
+  const role = body.role === undefined ? (admin ? "admin" : "employee") : body.role;
+  if ((admin && !roles.admin) || (!admin && role !== "employee") ||
+      !["admin", "employee"].includes(role) || !roles[role]) {
     throw new APIError(403, "forbidden", "ไม่สามารถใช้งานบัญชีนี้ได้ กรุณาติดต่อ HR");
   }
-  const role = admin ? "admin" : "employee";
+  if (admin && roles.employee && body.role === undefined) {
+    return { ok: true, role_selection_required: true, roles: ["employee", "admin"] };
+  }
   return {
     ok: true,
-    employee: { id: record.record_id, nickname: admin ? "ADMIN" : textValue(fieldsData[cfg.nickname]), department: textValue(fieldsData[cfg.department]), role },
+    employee: { id: record.record_id, nickname: textValue(fieldsData[cfg.nickname]), department: textValue(fieldsData[cfg.department]), role },
     session_token: await makeSession(record.record_id, role, env),
     expires_in: SESSION_SECONDS
   };
 }
 
 async function employeeList(request, env, cfg) {
-  const session = await readSession(request, env);
-  if (!session) throw new APIError(401, "unauthorized", "กรุณาเข้าสู่ระบบใหม่");
-  const records = await searchRecords(env, [cfg.nickname, cfg.department, cfg.status], [
+  const who = await actor(request, env, cfg);
+  const records = await searchRecords(env, [cfg.nickname, cfg.department, cfg.status, cfg.role], [
     { field_name: cfg.status, operator: "is", value: [cfg.active] }
   ]);
   if (records.length >= 10000) throw new APIError(502, "directory_too_large", "รายชื่อมีจำนวนมากเกินขอบเขตที่ตั้งไว้");
-  if (!records.some(record => record.record_id === session.sub && textValue(record.fields?.[cfg.status]) === cfg.active)) {
-    throw new APIError(401, "unauthorized", "กรุณาเข้าสู่ระบบใหม่");
-  }
   const employees = records
-    .filter(record => record.record_id && record.record_id !== session.sub && textValue(record.fields?.[cfg.status]) === cfg.active)
+    .filter(record => record.record_id && record.record_id !== who.id &&
+      textValue(record.fields?.[cfg.status]) === cfg.active && accountRoles(record.fields?.[cfg.role]).employee)
     .map(record => ({ id: record.record_id, nickname: textValue(record.fields?.[cfg.nickname]), department: textValue(record.fields?.[cfg.department]) }))
-    .filter(person => person.nickname && person.department && person.nickname.toUpperCase() !== 'ADMIN')
+    .filter(person => person.nickname && person.department)
     .sort((a, b) => a.department.localeCompare(b.department, "th") || a.nickname.localeCompare(b.nickname, "th"));
   return { ok: true, departments: [...new Set(employees.map(person => person.department))], employees };
 }
 
 // Score fields are separate from the employee registry; no citizen ID is written here.
 const DIMENSIONS = ['ความเร็ว', 'ความถูกต้อง', 'การสื่อสาร'];
+const ROUND_PATTERN = /^20\d{2}-(0[1-9]|1[0-2])$/;
 const REVIEW = {auto:'ผ่านอัตโนมัติ', pending:'รอ HR ตรวจสอบ', approved:'อนุมัติ', rejected:'ไม่อนุมัติ'};
 const SCORE_FIELDS = {
   submission:['รหัสแบบประเมิน',1,[1]], round:['รอบประเมิน',1,[1,3]],
@@ -240,7 +248,7 @@ function scoreConfig(env) {
   const round = env.EVALUATION_ROUND || '2026-10';
   const minimum = Number(env.MIN_RATERS || 3);
   const state = env.ROUND_STATE || 'open';
-  if (!/^20\d{2}-(0[1-9]|1[0-2])$/.test(round) || !Number.isInteger(minimum) || minimum < 1 || minimum > 20 || !['open','review','released'].includes(state)) {
+  if (!ROUND_PATTERN.test(round) || !Number.isInteger(minimum) || minimum < 1 || minimum > 20 || !['open','review','released'].includes(state)) {
     throw new APIError(503,'invalid_score_configuration','ค่ารอบประเมินไม่ถูกต้อง กรุณาติดต่อ HR');
   }
   return {round, minimum, state, policy:'base-v1/min-'+minimum, private:env.SCORE_STORAGE_PRIVATE === 'true'};
@@ -268,13 +276,16 @@ async function employeeById(env, cfg, id) {
   const data = await baseCall(env, recordURL(env, env.LARK_TABLE_ID, '/records/'+encodeURIComponent(id)));
   const r = data.data?.record;
   if (!r?.record_id || textValue(r.fields?.[cfg.status]) !== cfg.active) throw new APIError(403,'inactive_employee','บัญชีไม่อยู่ในสถานะใช้งาน กรุณาติดต่อ HR');
-  return {id:r.record_id, nickname:textValue(r.fields[cfg.nickname]), department:textValue(r.fields[cfg.department]), isAdmin:textValue(r.fields[cfg.role]).toLowerCase()==='admin' && textValue(r.fields[cfg.nickname]).toUpperCase()==='ADMIN'};
+  return {id:r.record_id, nickname:textValue(r.fields[cfg.nickname]), department:textValue(r.fields[cfg.department]), roles:accountRoles(r.fields[cfg.role])};
 }
 async function actor(request, env, cfg, admin = false) {
   const session = await readSession(request, env);
   if (!session) throw new APIError(401,'unauthorized','กรุณาเข้าสู่ระบบใหม่');
   const employee = await employeeById(env, cfg, session.sub);
-  if (admin && (session.role !== 'admin' || !employee.isAdmin)) throw new APIError(403,'forbidden','เฉพาะ HR Admin เท่านั้น');
+  const role = admin ? 'admin' : 'employee';
+  if (session.role !== role || !employee.roles[role]) {
+    throw new APIError(403, 'forbidden', admin ? 'เฉพาะ HR Admin เท่านั้น' : 'กรุณาเข้าสู่ระบบในโหมดพนักงาน');
+  }
   return employee;
 }
 async function schema(env) {
@@ -392,13 +403,74 @@ function validateAssessment(body) {
   if (!Array.isArray(body.reasons) || body.reasons.length!==3 || body.reasons.some(r=>typeof r!=='string'||r.length>500) || body.scores.some((s,i)=>s<=3&&!body.reasons[i].trim())) throw new APIError(400,'reason_required','คะแนน 1–3 ดาวต้องมีเหตุผลแยกแต่ละด้าน');
   if (body.context!==undefined && (typeof body.context!=='string'||body.context.length>180)) throw new APIError(400,'invalid_context','รายละเอียดโปรเจกต์ยาวเกินไป');
 }
+
+async function eligibleTarget(env, cfg, who, id) {
+  if (id === who.id) throw new APIError(403, 'self_assessment', 'ไม่สามารถประเมินตัวเองได้');
+  const target = await employeeById(env, cfg, id);
+  if (!target.nickname || !target.department || !target.roles.employee) {
+    throw new APIError(403, 'ineligible_target', 'ไม่สามารถเลือกบัญชีนี้เป็นผู้รับการประเมินได้');
+  }
+  return target;
+}
+
+const draftSchemas = new WeakMap();
+async function draftDatabase(env) {
+  const db = env.DRAFTS_DB;
+  if (!db) throw new APIError(503, 'draft_sync_unavailable', 'ยังซิงก์แบบร่างไม่ได้ กรุณาลองใหม่');
+  if (!draftSchemas.has(db)) {
+    draftSchemas.set(db, db.prepare(`CREATE TABLE IF NOT EXISTS assessment_drafts (
+      owner TEXT NOT NULL,
+      round TEXT NOT NULL,
+      target TEXT NOT NULL,
+      payload TEXT NOT NULL,
+      revision INTEGER NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (owner, round, target)
+    )`).run().catch(error => { draftSchemas.delete(db); throw error; }));
+  }
+  await draftSchemas.get(db);
+  return db;
+}
+
+async function assessmentDraft(request, env, cfg, target) {
+  const who = await actor(request, env, cfg), sc = scoreConfig(env);
+  requirePrivate(sc);
+  if (target === who.id) throw new APIError(403, 'self_assessment', 'ไม่สามารถประเมินตัวเองได้');
+  const owner = await raterKey(env, who.id);
+  const db = await draftDatabase(env);
+  if (request.method === 'GET') {
+    const row = await db.prepare(`SELECT payload, revision, updated_at FROM assessment_drafts
+      WHERE owner = ? AND round = ? AND target = ?`).bind(owner, sc.round, target).first();
+    return { ok: true, round: sc.round, draft: row ? { ...JSON.parse(row.payload), revision: row.revision, updated_at: row.updated_at } : null };
+  }
+
+  const body = await bodyJSON(request);
+  if (sc.state !== 'open' || body.round !== sc.round) throw new APIError(409, 'round_closed', 'รอบประเมินเปลี่ยนแล้ว กรุณาโหลดหน้าใหม่');
+  const { scores, reasons, context, revision } = body;
+  if (!Array.isArray(scores) || scores.length !== 3 || scores.some(s => s !== null && (!Number.isInteger(s) || s < 1 || s > 5)) ||
+      !Array.isArray(reasons) || reasons.length !== 3 || reasons.some(r => typeof r !== 'string' || r.length > 500) ||
+      typeof context !== 'string' || context.length > 180 || !Number.isSafeInteger(revision) || revision < 0 || revision === Number.MAX_SAFE_INTEGER) {
+    throw new APIError(400, 'invalid_draft', 'ข้อมูลแบบร่างไม่ถูกต้อง');
+  }
+  await eligibleTarget(env, cfg, who, target);
+  const payload = JSON.stringify({ scores, reasons, context });
+  const updatedAt = new Date().toISOString();
+  const row = revision === 0
+    ? await db.prepare(`INSERT INTO assessment_drafts (owner, round, target, payload, revision, updated_at)
+        VALUES (?, ?, ?, ?, 1, ?) ON CONFLICT (owner, round, target) DO NOTHING RETURNING revision`)
+        .bind(owner, sc.round, target, payload, updatedAt).first()
+    : await db.prepare(`UPDATE assessment_drafts SET payload = ?, revision = revision + 1, updated_at = ?
+        WHERE owner = ? AND round = ? AND target = ? AND revision = ? RETURNING revision`)
+        .bind(payload, updatedAt, owner, sc.round, target, revision).first();
+  if (!row) throw new APIError(409, 'draft_conflict', 'แบบร่างมีการแก้ไขจากอุปกรณ์อื่น');
+  return { ok: true, round: sc.round, revision: row.revision, updated_at: updatedAt };
+}
+
 async function submitAssessment(request,env,cfg) {
   const who=await actor(request,env,cfg),sc=scoreConfig(env); requirePrivate(sc);
   const body=await bodyJSON(request);validateAssessment(body);
   if (sc.state!=='open' || body.round!==sc.round) throw new APIError(409,'round_closed','รอบนี้ปิดรับหรือรอบประเมินเปลี่ยนแล้ว กรุณาโหลดหน้าใหม่');
-  if (body.target_id===who.id) throw new APIError(403,'self_assessment','ไม่สามารถประเมินตัวเองได้');
-  const target=await employeeById(env,cfg,body.target_id);
-  if (!target.nickname || !target.department || target.isAdmin) throw new APIError(403,'ineligible_target','ไม่สามารถเลือกบัญชีนี้เป็นผู้รับการประเมินได้');
+  const target=await eligibleTarget(env,cfg,who,body.target_id);
   const map=await schema(env);validateSchema(map);
   const rk=await raterKey(env,who.id),id='CC-'+(await hash('submission|'+env.LARK_APP_TOKEN+'|'+body.round+'|'+who.id+'|'+target.id)).slice(0,40);
   const conditions=[{field_name:sf('submission'),operator:'is',value:[id]}];
@@ -426,6 +498,14 @@ async function submitAssessment(request,env,cfg) {
   }
   const saved=(await groups(await scoreRows(env,conditions))).find(x=>x.id===id);
   if (!saved) throw new APIError(502,'save_unconfirmed','ยังยืนยันการบันทึกครบ 3 ด้านไม่ได้ กรุณากดส่งอีกครั้ง');
+  if (env.DRAFTS_DB) {
+    try {
+      const db = await draftDatabase(env);
+      await db.prepare('DELETE FROM assessment_drafts WHERE owner = ? AND round = ? AND target = ?').bind(rk, sc.round, target.id).run();
+    } catch {
+      // A cleanup failure must not turn a confirmed Base submission into a failed send.
+    }
+  }
   return {ok:true,assessment_id:id,persisted:true,answers:3,created:saved.created,history_entry:historyEntry(saved)};
 }
 function historyEntry(a) {
@@ -433,8 +513,11 @@ function historyEntry(a) {
   return {target:a.target,name:a.name,department:a.department,round:a.round,created:a.created,context:a.context,answers:DIMENSIONS.map((dimension,i)=>({dimension,score:a.scores[i],reason:a.reasons[i]}))};
 }
 function visibleAnswer(a,i) {
-  const status=textValue(a.rows[i].fields?.[sf('status')]);
-  return (a.scores[i]>=4&&status===REVIEW.auto)||(status===REVIEW.approved&&!!textValue(a.rows[i].fields?.[sf('note')]));
+  const fields = a.rows[i].fields;
+  const status = textValue(fields?.[sf('status')]);
+  const reviewed = textValue(fields?.[sf('reviewer')]) && textValue(fields?.[sf('reviewedAt')]);
+  return (a.scores[i] >= 4 && status === REVIEW.auto) ||
+    (status === REVIEW.approved && Boolean(reviewed || textValue(fields?.[sf('note')])));
 }
 function receivedFeedback(all) {
   // Recipient projection: only visible scores, without rater IDs, raw comments,
@@ -465,20 +548,63 @@ async function employeeState(request,env,cfg) {
   const received=await groups(rows),sent=await groups(mine),feedback=receivedFeedback(received),cutoff=Date.now()-30*86400000;
   const notifications={};
   for (const a of feedback) if (Date.parse(a.created)>=cutoff&&Date.parse(a.created)<=Date.now()) notifications[a.created]=(notifications[a.created]||0)+1;
-  return {ok:true,round:sc.round,round_state:sc.state,policy:{version:sc.policy,minimum_raters:sc.minimum},summary:summary(received,sc.round,sc.minimum),previous:summary(received,previousRound(sc.round),sc.minimum),feedback,history:sent.map(historyEntry),notifications:Object.entries(notifications).map(([created,count])=>({created,count})).sort((a,b)=>b.created.localeCompare(a.created))};
+  return {ok:true,round:sc.round,round_state:sc.state,draft_sync:Boolean(env.DRAFTS_DB),policy:{version:sc.policy,minimum_raters:sc.minimum},summary:summary(received,sc.round,sc.minimum),previous:summary(received,previousRound(sc.round),sc.minimum),feedback,history:sent.map(historyEntry),notifications:Object.entries(notifications).map(([created,count])=>({created,count})).sort((a,b)=>b.created.localeCompare(a.created))};
 }
 async function hrState(request,env,cfg) {
   await actor(request,env,cfg,true);const sc=scoreConfig(env),map=await schema(env),missing=missingFields(map),invalid=invalidFields(map);
-  if (missing.length||invalid.length||!sc.private) return {ok:true,setup_required:!!(missing.length||invalid.length),missing,invalid_fields:invalid,score_table_id:env.LARK_SCORE_TABLE_ID,storage_private:sc.private,round:sc.round,policy:{version:sc.policy,minimum_raters:sc.minimum},reviews:[]};
+  const state = {ok:true,setup_required:!!(missing.length||invalid.length),missing,invalid_fields:invalid,score_table_id:env.LARK_SCORE_TABLE_ID,storage_private:sc.private,round:sc.round,round_state:sc.state,policy:{version:sc.policy,minimum_raters:sc.minimum},approval_note_optional:true,heatmap_available:true};
+  if (state.setup_required || !sc.private) return {...state,reviews:[]};
   validateSchema(map);
   const all=await groups(await scoreRows(env,[{field_name:sf('round'),operator:'is',value:[sc.round]}]));
   const reviews=all.flatMap(a=>a.rows.map((r,i)=>({record_id:r.record_id,name:a.name,department:a.department,dimension:DIMENSIONS[i],score:a.scores[i],reason:a.reasons[i],context:a.context,created:a.created,status:textValue(r.fields?.[sf('status')]),note:textValue(r.fields?.[sf('note')])})).filter(r=>r.score<=3));
-  return {ok:true,setup_required:false,missing:[],invalid_fields:[],score_table_id:env.LARK_SCORE_TABLE_ID,storage_private:true,round:sc.round,round_state:sc.state,policy:{version:sc.policy,minimum_raters:sc.minimum},reviews};
+  return {...state,reviews};
 }
+
+async function hrHeatmap(request, env, cfg, round) {
+  await actor(request, env, cfg, true);
+  const sc = scoreConfig(env);
+  requirePrivate(sc);
+  validateSchema(await schema(env));
+  const all = await groups(await scoreRows(env, round ? [{field_name:sf('round'),operator:'is',value:[round]}] : []));
+  const rounds = [...new Set([sc.round, ...all.map(a => a.round)])].sort().reverse();
+  round ||= sc.round;
+  const departments = new Map();
+  for (const a of all) {
+    if (a.round !== round || !a.department) continue;
+    if (!departments.has(a.department)) {
+      departments.set(a.department, DIMENSIONS.map(() => ({ raters: new Map(), minimum: Math.max(3, sc.minimum) })));
+    }
+    const cells = departments.get(a.department);
+    a.scores.forEach((score, i) => {
+      const cell = cells[i];
+      cell.minimum = Math.max(cell.minimum, Number(a.policy.split('min-')[1]));
+      if (!visibleAnswer(a, i)) return;
+      const total = cell.raters.get(a.rater) || { sum: 0, count: 0 };
+      total.sum += score;
+      total.count++;
+      cell.raters.set(a.rater, total);
+    });
+  }
+  const rows = [...departments].sort(([a], [b]) => a.localeCompare(b, 'th')).map(([department, cells]) => ({
+    department,
+    means: cells.map(({ raters, minimum }) => {
+      if (raters.size < minimum) return null;
+      const mean = [...raters.values()].reduce((sum, rater) => sum + rater.sum / rater.count, 0) / raters.size;
+      return Math.round(mean * 100) / 100;
+    })
+  }));
+  return { ok: true, round, rounds, dimensions: DIMENSIONS, rows };
+}
+
 async function reviewScore(request,env,cfg,id) {
   const who=await actor(request,env,cfg,true),sc=scoreConfig(env);requirePrivate(sc);
   const b=await bodyJSON(request);
-  if (Object.keys(b).some(k=>!['decision','note'].includes(k)) || !['approved','rejected'].includes(b.decision)||typeof b.note!=='string'||!b.note.trim()||b.note.length>500) throw new APIError(400,'review_note_required','กรุณาระบุผลตรวจสอบและเหตุผลก่อนยืนยัน');
+  if (Object.keys(b).some(k=>!['decision','note'].includes(k)) || !['approved','rejected'].includes(b.decision) ||
+      (b.note !== undefined && (typeof b.note !== 'string' || b.note.length > 500))) {
+    throw new APIError(400, 'invalid_review', 'ข้อมูลการตรวจสอบไม่ถูกต้อง');
+  }
+  const note = b.note?.trim() || '';
+  if (b.decision === 'rejected' && !note) throw new APIError(400, 'review_note_required', 'กรุณาระบุเหตุผลที่ไม่อนุมัติ');
   const map=await schema(env);validateSchema(map);
   const result=await baseCall(env,recordURL(env,env.LARK_SCORE_TABLE_ID,'/records/'+encodeURIComponent(id))),r=result.data?.record;
   if (!r?.record_id || !manifestOf(r)) throw new APIError(404,'review_not_found','ไม่พบรายการที่ตรวจสอบได้');
@@ -488,14 +614,22 @@ async function reviewScore(request,env,cfg,id) {
   if (a.round!==sc.round || sc.state==='released') throw new APIError(409,'review_round_closed','รอบนี้เผยแพร่ผลแล้วหรือไม่ได้อยู่ในรอบที่เปิดตรวจสอบ');
   const expected=REVIEW[b.decision],current=textValue(r.fields[sf('status')]);
   if (current!==REVIEW.pending) {
-    if (current===expected&&textValue(r.fields[sf('note')])===b.note.trim()) return {ok:true,record_id:id,decision:b.decision};
+    if (current===expected&&textValue(r.fields[sf('note')])===note) return {ok:true,record_id:id,decision:b.decision};
     throw new APIError(409,'review_conflict','รายการนี้ถูกตรวจสอบแล้ว กรุณาโหลดข้อมูลใหม่');
   }
-  const values={status:expected,note:b.note.trim(),reviewer:who.id,reviewedAt:new Date().toISOString()};
+  const values={status:expected,note,reviewer:who.id,reviewedAt:new Date().toISOString()};
   const fields=Object.fromEntries(Object.entries(values).map(([k,v])=>[sf(k),fieldValue(map,k,v)]));
   const u=new URL(recordURL(env,env.LARK_SCORE_TABLE_ID,'/records/'+encodeURIComponent(id)));u.searchParams.set('client_token',await uuid('review|'+id));
   const saved=await baseCall(env,u,'PUT',{fields});
-  if (textValue(saved.data?.record?.fields?.[sf('status')])!==expected) throw new APIError(502,'review_unconfirmed','ยังยืนยันผลตรวจสอบไม่ได้ กรุณาโหลดข้อมูลใหม่');
+  const confirmed = record => {
+    const fields = record?.fields;
+    return textValue(fields?.[sf('status')]) === expected &&
+      textValue(fields?.[sf('note')]) === note && textValue(fields?.[sf('reviewer')]) === who.id &&
+      Boolean(textValue(fields?.[sf('reviewedAt')]));
+  };
+  if (!confirmed(saved.data?.record) && !confirmed((await baseCall(env,u)).data?.record)) {
+    throw new APIError(502,'review_unconfirmed','ยังยืนยันผลตรวจสอบไม่ได้ กรุณาโหลดข้อมูลใหม่');
+  }
   return {ok:true,record_id:id,decision:b.decision};
 }
 export default {
@@ -504,20 +638,27 @@ export default {
     if (origin&&origin!==(env.ALLOWED_ORIGIN||'https://bd-ctrl.github.io')) return reply(request,env,{ok:false,error:'origin_not_allowed',message:'ไม่อนุญาตให้เรียกจากเว็บไซต์นี้'},403);
     if (request.method==='OPTIONS') return reply(request,env,null,204);
     try {
-      if (['/','/health'].includes(url.pathname)&&request.method==='GET') return reply(request,env,{ok:true,service:'CUBIC CONNECT API',version:'scores-v1',capabilities:['employees','assessments','results','hr-review','immediate-feedback','sent-history-receipt','sent-history-details']});
-      const methods={'/login':'POST','/employees':'GET','/me/state':'GET','/hr/state':'GET','/hr/setup':'POST','/assessments':'POST'};
+      if (['/','/health'].includes(url.pathname)&&request.method==='GET') return reply(request,env,{ok:true,service:'CUBIC CONNECT API',version:'scores-v2',capabilities:['employees','assessments','results','hr-review','immediate-feedback','sent-history-receipt','sent-history-details','role-selection','hr-heatmap','approval-note-optional',...(env.DRAFTS_DB?['account-drafts']:[])]});
+      const methods={'/login':'POST','/employees':'GET','/me/state':'GET','/hr/state':'GET','/hr/heatmap':'GET','/hr/setup':'POST','/assessments':'POST'};
       const review=url.pathname.match(/^\/hr\/reviews\/([\w-]{3,100})$/);
-      const method=review?'POST':methods[url.pathname];
+      const draft=url.pathname.match(/^\/me\/drafts\/([\w-]{3,100})$/);
+      const method=review?'POST':draft&&request.method==='POST'?'POST':draft?'GET':methods[url.pathname];
       if (!method) throw new APIError(404,'not_found','ไม่พบ API นี้');
       if (request.method!==method) throw new APIError(405,'method_not_allowed','วิธีเรียก API ไม่ถูกต้อง');
-      if (url.search) throw new APIError(400,'unexpected_query','เส้นทางนี้ไม่รับรหัสผู้ใช้งานจาก URL');
+      const heatmap = url.pathname === '/hr/heatmap';
+      const round = heatmap ? url.searchParams.get('round') : null;
+      if (url.search && (!heatmap || [...url.searchParams].length !== 1 || !ROUND_PATTERN.test(round || ''))) {
+        throw new APIError(400,'unexpected_query','รอบประเมินไม่ถูกต้อง');
+      }
       const cfg=config(env);let body;
       if (url.pathname==='/login') body=await login(request,env,cfg);
       else if (url.pathname==='/employees') body=await employeeList(request,env,cfg);
       else if (url.pathname==='/me/state') body=await employeeState(request,env,cfg);
       else if (url.pathname==='/hr/state') body=await hrState(request,env,cfg);
+      else if (heatmap) body=await hrHeatmap(request,env,cfg,round);
       else if (url.pathname==='/hr/setup') body=await setupScores(request,env,cfg);
       else if (url.pathname==='/assessments') body=await submitAssessment(request,env,cfg);
+      else if (draft) body=await assessmentDraft(request,env,cfg,draft[1]);
       else body=await reviewScore(request,env,cfg,review[1]);
       return reply(request,env,body);
     } catch(error) {

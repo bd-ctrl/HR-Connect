@@ -5,6 +5,7 @@ const mobileArt={
 home:'<path d="M6 14h20v13a3 3 0 0 1-3 3H9a3 3 0 0 1-3-3Z" fill="#f7bbb1"/><path d="M2.8 15.2a2 2 0 0 1 .4-2.8l10.4-9a3.6 3.6 0 0 1 4.8 0l10.4 9a2 2 0 0 1-1.3 3.5h-23a2 2 0 0 1-1.7-.7Z" fill="#ed795f"/><path d="M12 30v-8a4 4 0 0 1 8 0v8Z" fill="#bd4f65"/>',
 rate:'<rect x="5" y="5" width="22" height="26" rx="5" fill="#87c5b3"/><rect x="11" y="2" width="10" height="7" rx="3" fill="#397e7b"/><rect x="10" y="14" width="9" height="3" rx="1.5" fill="#dcf2e6"/><rect x="10" y="20" width="12" height="3" rx="1.5" fill="#dcf2e6"/><path d="m25 9 1.6 3.3 3.7.5-2.7 2.6.6 3.7-3.2-1.8-3.3 1.8.7-3.7-2.7-2.6 3.7-.5Z" fill="#f3cb65"/>',
 results:'<rect x="3" y="18" width="7" height="12" rx="3" fill="#eea2bf"/><rect x="12.5" y="11" width="7" height="19" rx="3" fill="#b799e0"/><rect x="22" y="3" width="7" height="27" rx="3" fill="#7961b6"/>',
+hr:'<rect x="3" y="3" width="26" height="26" rx="6" fill="#e6dcf4"/><rect x="7" y="7" width="8" height="8" rx="2" fill="#a58ccc"/><rect x="17" y="7" width="8" height="8" rx="2" fill="#7255ab"/><rect x="7" y="17" width="8" height="8" rx="2" fill="#edb1bd"/><rect x="17" y="17" width="8" height="8" rx="2" fill="#c3afdf"/>',
 praise:'<path d="M3 8a6 6 0 0 1 6-6h16a5 5 0 0 1 5 5v14a5 5 0 0 1-5 5H13l-7 5v-6a5 5 0 0 1-3-5Z" fill="#f2acc8"/><path d="M16.5 11c-5.8-6.5-12.3 2.8 0 10 12.3-7.2 5.8-16.5 0-10Z" fill="#c64985"/>'};
 const mobileIco=id=>mobileArt[id]?`<svg class="nav-art" viewBox="0 0 32 32" aria-hidden="true">${mobileArt[id]}</svg>`:ico(id);
 const reduced=matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -44,6 +45,7 @@ try{
 }
 let db=readDatabase(storageKey);
 let page='home',role='employee',form=null,stage='edit',errors=[],tab='history',historyRound='all',analyticsRound='2026-09',drill=null,queueFilter='pending',formDept='',pickerTarget='',pickerContext='',pickerChecking=false,pickerCheckGeneration=0,storageOK=true,modalReturn=null,rocketShown=false;
+let draftSave=null;
 function save(){try{localStorage.setItem(storageKey,JSON.stringify(db));return true}catch{storageOK=false;toast('บันทึกร่างในเครื่องไม่สำเร็จ กรุณาตรวจสอบพื้นที่จัดเก็บ');return false}}
 function toast(t){$('#toast').textContent=t;$('#toast').classList.add('toast-visible');setTimeout(()=>$('#toast').classList.remove('toast-visible'),3200)}
 const statusLabel=()=>({open:'เปิดรับการประเมิน',review:'HR กำลังตรวจสอบ',released:'เผยแพร่ผลแล้ว'}[db.round]);
@@ -52,18 +54,19 @@ const receivedInLast30Days=()=>Scores.status()==='ready'?(Scores.data()?.notific
 const unseenRatings=()=>{let seen=0;try{seen=Number(localStorage.getItem(notificationKey())||0)}catch{}return receivedInLast30Days().filter(r=>new Date(r.created).getTime()>seen)};
 const unseenRatingCount=()=>unseenRatings().reduce((sum,r)=>sum+r.count,0);
 const currentRows=()=>db.records.filter(r=>r.round===ROUND),getResult=(id,round=ROUND)=>L.aggregate(db.records.filter(r=>r.target===id&&r.round===round)),submitted=id=>Scores.history().some(h=>h.target===id&&h.round===Scores.round()),remaining=()=>eligible.filter(id=>!submitted(id)&&!db.notWorked.includes(id));
-function navigation(mobile=false){const items=role==='employee'?[['home','หน้าหลัก'],['rate','ประเมิน'],['results','ประวัติการประเมิน']]:[['home','หน้าหลัก'],['queue','ตรวจสอบ'],['hr','วิเคราะห์'],['admin','ตั้งค่าคะแนน']];return `<nav class="${mobile?'mobile-nav':'nav'}" aria-label="เมนูหลัก">${items.map(([id,title])=>`<button data-nav="${id}" class="${page===id?'active':''}" ${page===id?'aria-current="page"':''}>${mobileIco(id==='queue'?'rate':id)}<span>${title}</span></button>`).join('')}</nav>`}
+function navigation(mobile=false){const items=role==='employee'?[['home','หน้าหลัก'],['rate','ประเมิน'],['results','ประวัติการประเมิน']]:[['home','หน้าหลัก'],['queue','อนุมัติคะแนน'],['hr','วิเคราะห์'],['admin','เชื่อมต่อ Base']];return `<nav class="${mobile?'mobile-nav':'nav'}" aria-label="เมนูหลัก">${items.map(([id,title])=>`<button data-nav="${id}" class="${page===id?'active':''}" ${page===id?'aria-current="page"':''}>${mobileIco(id==='queue'?'rate':id)}<span>${title}</span></button>`).join('')}</nav>`}
 function head(title,sub,extra='',showRound=true){const roundLabel=showRound?`<div class="eyebrow">${role==='hr'?'HR ADMIN PORTAL · ':'รอบประเมิน '}${roundName(Scores.round())}</div>`:'';return `<div class="page-head"><div>${roundLabel}<h1>${title}</h1><p class="muted">${sub}</p></div>${extra}</div>`}
 function go(p){invalidatePickerCheck();rocketShown=false;if(form&&page==='rate'){collect();db.drafts[form.target]=structuredClone(form);save()}page=p;errors=[];form=null;pickerTarget='';pickerContext='';drill=null;render();window.scrollTo(0,0)}
 function resetDirectory(){invalidatePickerCheck();directoryGeneration++;eligible.splice(0);directory={status:'idle',people:[],departments:[],error:''};formDept='';pickerTarget=''}
 function afterLogin(loginRole){
  resetDirectory();const id=GlowLogin.profile?.()?.id;
  storageKey=id?KEY+':employee:'+encodeURIComponent(id):KEY+':legacy-session:'+Date.now();
- db=id?readDatabase(storageKey):seed();storageOK=true;page='home';role=loginRole==='admin'?'hr':'employee';form=null;historyRound='all';render();void Scores.start();
+ db=id?readDatabase(storageKey):seed();storageOK=true;page='home';role=loginRole==='admin'?'hr':'employee';form=null;draftSave=null;historyRound='all';render();void Scores.start();
 }
 function signOut(reason=''){
  if(form){collect();db.drafts[form.target]=structuredClone(form);save()}
- GlowLogin.logout(reason);Scores.reset();resetDirectory();db=seed();storageKey=KEY;role='employee';form=null;page='home';pickerContext='';errors=[];drill=null;render();
+ $('#app-modal')?.remove();
+ GlowLogin.logout(reason);Scores.reset();resetDirectory();db=seed();storageKey=KEY;role='employee';form=null;draftSave=null;page='home';pickerContext='';errors=[];drill=null;render();
 }
 async function loadDirectory(){
  if(!GlowLogin.active()||directory.status==='loading')return;
@@ -96,18 +99,130 @@ function directoryNotice(){
  const message=relogin?'กรุณาเข้าสู่ระบบใหม่เพื่อโหลดรายชื่อพนักงาน':directory.error==='directory_timeout'?'โหลดรายชื่อใช้เวลานานเกินไป กรุณาลองใหม่':'โหลดรายชื่อพนักงานไม่สำเร็จ กรุณาลองใหม่หรือติดต่อ HR';
  return `<div class="error" role="alert">${message}</div><button id="${relogin?'directory-relogin':'retry-directory'}" class="secondary" type="button">${relogin?'เข้าสู่ระบบใหม่':'ลองโหลดรายชื่ออีกครั้ง'}</button>`;
 }
+function notificationButton(){
+ const count=role==='hr'?Scores.pendingCount():unseenRatingCount();
+ const label=role==='hr'?`คะแนนรออนุมัติ ${count} รายการ`:'การแจ้งเตือนคะแนน';
+ return `<button id="notifications" class="notification-button" type="button" aria-label="${label}" title="${label}">
+  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 9a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/><path d="M10 21h4"/></svg>
+  ${count?`<span class="notification-badge" id="notification-badge" aria-hidden="true">${count>99?'99+':count}</span>`:''}
+ </button>`;
+}
 function render(){
  if(!GlowLogin.active()){GlowLogin.render(afterLogin);return}
  if(!GlowLogin.checkSession())return;
  if(role!=='hr'&&['queue','hr','admin','actions'].includes(page))page='home';
- $('#app').innerHTML=`<div class="shell"><aside class="sidebar"><div><div class="logo cubic-brand">CUBIC<br>CONNECT<span>✦</span></div><div class="brand-caption">PEOPLE GROW TOGETHER</div></div>${navigation()}<div class="side-note">ฟังกัน เข้าใจกัน เติบโตไปด้วยกัน<br><br>ผลประเมินที่ส่งแล้วใช้ข้ามอุปกรณ์ได้<br>ร่างบันทึกเฉพาะอุปกรณ์นี้<br><button class="section-link" id="reset">ล้างร่างในเครื่อง</button></div></aside><main class="main"><header class='topbar'><div class='mobile-brand cubic-brand'>CUBIC<br>CONNECT<span>✦</span></div><div class='role'><span class='role-name' aria-label='บทบาทผู้ใช้งาน'>${role==='hr'?'HR ADMIN · ADMIN':'พนักงาน · '+esc(GlowLogin.profile?.()?.nickname||'')}</span></div><div class='header-actions'>${role==='employee'?`<button id='notifications' class='icon-button notification-button' aria-label='การแจ้งเตือนคะแนน' title='การแจ้งเตือนคะแนน'><svg viewBox='0 0 24 24' aria-hidden='true'><path d='M18 9a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9'/><path d='M10 21h4'/></svg>${unseenRatingCount()?`<span class='notification-badge' id='notification-badge'>${unseenRatingCount()>99?'99+':unseenRatingCount()}</span>`:''}</button>`:''}<button id="logout" class="logout-button" type="button" aria-label="ออกจากระบบ" title="ออกจากระบบ"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 17l5-5-5-5M15 12H3"/><path d="M12 3h6a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-6"/></svg><span>ออกจากระบบ</span></button></div></header>${!storageOK?'<div class="error" role="alert">พื้นที่จัดเก็บไม่พร้อม การเปลี่ยนแปลงอาจไม่ถูกบันทึก</div>':''}<div id="content">${view()}</div><p class="footer-note">ผลประเมินที่ส่งสำเร็จใช้ข้ามอุปกรณ์ได้ · ร่างเก็บเฉพาะอุปกรณ์นี้<br><button id="reset-mobile" class="section-link mobile-only">ล้างร่างในเครื่อง</button></p></main>${navigation(true)}</div>`;
+ const nickname=esc(GlowLogin.profile()?.nickname||'');
+ $('#app').innerHTML=`<div class="shell">
+  <aside class="sidebar"><div><div class="logo cubic-brand">CUBIC<br>CONNECT<span>✦</span></div><div class="brand-caption">BETTER TOGETHER</div></div>${navigation()}</aside>
+  <main class="main">
+   <header class="topbar">
+    <div class="mobile-brand cubic-brand">CUBIC<br>CONNECT<span>✦</span></div>
+    <div class="role"><span class="role-name" aria-label="บทบาทผู้ใช้งาน">${role==='hr'?'HR Admin':'พนักงาน'}${nickname?' · '+nickname:''}</span></div>
+    <div class="header-actions">${notificationButton()}
+     <button id="logout" class="logout-button" type="button" aria-label="ออกจากระบบ" title="ออกจากระบบ"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 17l5-5-5-5M15 12H3"/><path d="M12 3h6a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-6"/></svg><span>ออกจากระบบ</span></button>
+    </div>
+   </header>
+   ${!storageOK?'<div class="error" role="alert">พื้นที่จัดเก็บไม่พร้อม การเปลี่ยนแปลงอาจไม่ถูกบันทึก</div>':''}
+   <div id="content">${view()}</div>
+  </main>${navigation(true)}
+ </div>`;
  bind();Scores.bind({toast,showDialog,signOut});if(drill)openDrill(drill);if(role==='employee'&&['rate','results'].includes(page)&&directory.status==='idle')void loadDirectory();
 }
 function view(){if(role==='hr')return Scores.hrView(page,{head,mascot,bars});return ({home:home,rate:assessment,results:myPortal}[page]||home)()}
 function home(){return Scores.home({head,mascot,bars})}
 function colleagueChat(){return '<span class="colleague-chat" aria-hidden="true"><img src="assets/colleagues-chat.webp" alt="" width="144" height="96"></span>'}
 function canStartAssessment(id,dept=person(id).dept){return !pickerChecking&&GlowLogin.active()&&directory.status==='ready'&&Boolean(dept)&&eligible.includes(id)&&person(id).dept===dept&&!submitted(id)&&!db.notWorked.includes(id)&&db.round==='open'}
-function start(id){if(!canStartAssessment(id)){toast('ไม่สามารถเริ่มการประเมินรายการนี้ได้');return}page='rate';formDept=person(id).dept;form=structuredClone(db.drafts[id]||{target:id,context:pickerContext,scores:['','',''],reasons:['','','']});stage='edit';errors=[];render();window.scrollTo(0,0)}
+function draftPayload(draft){
+ return {scores:draft.scores.map(score=>score||null),reasons:draft.reasons,context:draft.context};
+}
+const draftSignature=draft=>JSON.stringify(draftPayload(draft));
+const draftPath=id=>'/me/drafts/'+encodeURIComponent(id);
+async function readAccountDraft(id,round){
+ const result=await GlowLogin.request(draftPath(id));
+ if(result.round!==round)throw Error('รอบประเมินเปลี่ยนแล้ว กรุณาเลือกผู้ร่วมงานอีกครั้ง');
+ if(!result.draft)return null;
+ const {scores,reasons,context,revision}=result.draft;
+ if(!Array.isArray(scores)||scores.length!==3||!Array.isArray(reasons)||reasons.length!==3||
+    typeof context!=='string'||!Number.isSafeInteger(revision)||revision<1)throw Error('ยังเปิดร่างล่าสุดไม่ได้');
+ const draft={target:id,round,scores:scores.map(s=>s??''),reasons,context,revision};
+ return {...draft,saved:draftSignature(draft)};
+}
+function chooseDraft(remote){
+ showDialog('<h2 id="modal-title">พบร่างจากอีกอุปกรณ์</h2><p>เลือกแบบร่างที่จะเปิดแก้ไข</p><div class="form-actions"><button class="secondary" id="keep-device-draft" type="button">ใช้ร่างในเครื่องนี้</button><button class="primary" id="use-account-draft" type="button">ใช้ร่างล่าสุด</button></div>',dialog=>{
+  function choose(useRemote){
+   if(form?.target!==remote.target||form.round!==remote.round){dialog.close();return;}
+   collect();
+   form=useRemote?structuredClone(remote):{...form,revision:remote.revision,saved:remote.saved};
+   db.drafts[form.target]=structuredClone(form);save();dialog.close();render();
+  }
+  dialog.querySelector('#keep-device-draft').onclick=()=>choose(false);
+  dialog.querySelector('#use-account-draft').onclick=()=>choose(true);
+ },'draft-conflict-dialog',false);
+}
+async function start(id){
+ if(!canStartAssessment(id)){toast('ไม่สามารถเริ่มการประเมินรายการนี้ได้');return;}
+ const round=Scores.round(),previous=db.drafts[id];
+ const local=previous&&(!previous.round||previous.round===round)?previous:null;
+ const blank={target:id,round,context:'',scores:['','',''],reasons:['','',''],revision:0};
+ const empty={...blank,context:pickerContext,saved:draftSignature(blank)};
+ let remote=null,loadFailed=false;
+ const sync=Scores.data()?.draft_sync===true;
+ if(sync){
+  const check=++pickerCheckGeneration,account=GlowLogin.profile()?.id;
+  pickerChecking='draft';render();
+  try{remote=await readAccountDraft(id,round);}catch{loadFailed=true;}
+  if(check!==pickerCheckGeneration||!GlowLogin.active()||GlowLogin.profile()?.id!==account||page!=='rate')return;
+  pickerChecking=false;
+  if(!canStartAssessment(id)||round!==Scores.round()){render();return;}
+ }
+ if(local?.revision>0&&sync&&!loadFailed&&!remote){local.revision=0;delete local.saved;}
+ const modified=local&&draftSignature(local)!==local.saved&&
+  (local.revision>0||draftSignature(local)!==draftSignature(blank));
+ const preferRemote=remote&&(!modified||draftSignature(local)===remote.saved);
+ page='rate';formDept=person(id).dept;form=structuredClone(preferRemote?remote:local?{...local,round}:empty);
+ stage='edit';errors=[];render();window.scrollTo(0,0);
+ if(loadFailed)toast('ยังโหลดร่างล่าสุดไม่ได้ กรุณาลองเปิดแบบประเมินอีกครั้ง');
+ if(remote&&!preferRemote&&local.revision!==remote.revision)chooseDraft(remote);
+}
+async function saveDraft(){
+ if(!form||draftSave)return;
+ collect();
+ const draft=structuredClone(form),round=draft.round||Scores.round();
+ db.drafts[draft.target]=draft;
+ const backedUp=save();
+ if(Scores.data()?.draft_sync!==true){
+  if(backedUp)toast('บันทึกร่างในเครื่องแล้ว');
+  return;
+ }
+ const operation=draftSave={target:draft.target,round};
+ render();
+ try{
+  const result=await GlowLogin.request(draftPath(draft.target),{method:'POST',body:{...draftPayload(draft),round,revision:draft.revision||0}});
+  if(draftSave!==operation)return;
+  if(result.round!==round||!Number.isSafeInteger(result.revision)||result.revision<1)throw Error('ยังยืนยันการบันทึกร่างไม่ได้');
+  const saved={revision:result.revision,saved:draftSignature(draft)};
+  const current=form?.target===draft.target&&form.round===round?form:null;
+  if(current)collect();
+  const stored=current||db.drafts[draft.target];
+  if(stored&&(!stored.round||stored.round===round)){
+   Object.assign(stored,saved);
+   db.drafts[draft.target]=structuredClone(stored);save();
+  }
+  toast('บันทึกร่างไว้ในบัญชีแล้ว');
+ }catch(error){
+  if(draftSave!==operation)return;
+  if(error.code==='draft_conflict'){
+   try{
+    const latest=await readAccountDraft(draft.target,round);
+    if(draftSave!==operation)return;
+    if(latest&&form?.target===draft.target&&form.round===round&&stage==='edit')chooseDraft(latest);
+    else toast('มีร่างล่าสุดในบัญชี กรุณาเปิดแบบประเมินอีกครั้ง');
+   }catch{if(draftSave===operation)toast('ยังโหลดร่างล่าสุดไม่ได้ กรุณาลองอีกครั้ง');}
+  }else toast(backedUp?'ซิงก์ร่างไม่สำเร็จ ร่างถูกเก็บไว้ในเครื่อง':'บันทึกร่างไม่สำเร็จ กรุณาลองอีกครั้ง');
+ }finally{
+  if(draftSave===operation){draftSave=null;if(form&&stage==='edit')collect();render();}
+ }
+}
 function collect(){if(!form||stage!=='edit')return;form.context=$('#context')?.value||'';form.reasons=form.reasons.map((s,i)=>$('#reason-'+i)?.value??s)}
 function invalidatePickerCheck(){pickerCheckGeneration++;pickerChecking=false}
 async function refreshPickerHistory(){
@@ -120,7 +235,7 @@ async function refreshPickerHistory(){
 }
 function pickerStatus(){
  const completed=Boolean(pickerTarget&&submitted(pickerTarget));
- return `<div id="target-status" class="picker-status ${completed?'is-complete':''}" role="status" aria-live="polite" aria-atomic="true" tabindex="-1" ${!pickerTarget||(!completed&&!pickerChecking)?'hidden':''}>${completed?`<strong>คุณส่งการประเมินคนนี้แล้วในรอบนี้</strong><p>${esc(person(pickerTarget).name)} · ${esc(person(pickerTarget).dept)} · ${roundName(Scores.round())}</p>`:pickerChecking?'กำลังตรวจสอบประวัติการประเมิน…':''}</div>`;
+ return `<div id="target-status" class="picker-status ${completed?'is-complete':''}" role="status" aria-live="polite" aria-atomic="true" tabindex="-1" ${!pickerTarget||(!completed&&!pickerChecking)?'hidden':''}>${completed?`<strong>คุณส่งการประเมินคนนี้แล้วในรอบนี้</strong><p>${esc(person(pickerTarget).name)} · ${esc(person(pickerTarget).dept)} · ${roundName(Scores.round())}</p>`:pickerChecking==='draft'?'กำลังเปิดแบบร่าง…':pickerChecking?'กำลังตรวจสอบประวัติการประเมิน…':''}</div>`;
 }
 function revealPickerStatus(){
  if(page!=='rate'||form||!submitted(pickerTarget))return;
@@ -144,14 +259,14 @@ function assessment(){
    <div class="assessment-person"><p class="assessment-context-label">คุณกำลังประเมินเพื่อนร่วมงาน</p><h2>${esc(p.name)} <span class="assessment-department">${esc(p.dept)}</span></h2><p class="muted">รอบประเมิน ${roundName(Scores.round())}</p></div>
    <div class="field assessment-project"><label for="context">โปรเจกต์ / งานที่ทำร่วมกัน</label><input id="context" maxlength="180" value="${esc(form.context)}" placeholder="ระบุได้เท่าที่สะดวก หรือเว้นว่างไว้"></div>
    <section class="assessment-rating-guide" aria-labelledby="rating-guide-title"><h3 id="rating-guide-title">เกณฑ์การให้คะแนน</h3><ol class="rating-scale"><li><span class="rating-level" aria-hidden="true">1</span> <span>ต่ำกว่าคาดหวังมาก</span></li><li><span class="rating-level" aria-hidden="true">2</span> <span>ต่ำกว่าคาดหวัง</span></li><li><span class="rating-level" aria-hidden="true">3</span> <span>ตามคาดหวัง</span></li><li><span class="rating-level" aria-hidden="true">4</span> <span>สูงกว่าคาดหวัง</span></li><li><span class="rating-level" aria-hidden="true">5</span> <span>สูงกว่าคาดหวังอย่างสม่ำเสมอ</span></li></ol><p class="muted">ให้คะแนนครบทั้ง 3 ด้าน หากให้ 1–3 ดาว กรุณาระบุเหตุผลในด้านนั้น</p></section>
-   ${L.dimensions.map((d,i)=>`<section class="rating-block tone-${i}"><h3>${i+1}. ${d} *</h3><p class="muted">${['ส่งมอบงานเสร็จภายใน Lead time ที่ตกลงไว้','งานถูกต้อง เรียบร้อย และครบถ้วนพร้อมใช้งาน','มารยาท ความสุภาพ และความเหมาะสมในการปฏิสัมพันธ์ ไม่ใช่ทักษะการนำเสนอ'][i]}</p><div class="stars" role="group" aria-label="คะแนน${d}">${[1,2,3,4,5].map(n=>`<button type="button" data-score="${i}:${n}" class="${n<=form.scores[i]?'on':''}" aria-pressed="${form.scores[i]===n}" aria-label="${d} ${n} ดาว">★</button>`).join('')}<span class="score-value">${form.scores[i]||'—'}/5</span></div><div class="field ${Number.isInteger(form.scores[i])&&form.scores[i]<=3?'reason':''}"><label for="reason-${i}">เหตุผลด้าน${d} ${Number.isInteger(form.scores[i])&&form.scores[i]<=3?'* จำเป็นสำหรับคะแนน 1–3 ดาว':'(ไม่บังคับสำหรับ 4–5 ดาว)'}</label><textarea id="reason-${i}" maxlength="500" ${Number.isInteger(form.scores[i])&&form.scores[i]<=3?'required':''} placeholder="เล่าสถานการณ์และผลต่องานสั้น ๆ อย่างสุภาพ">${esc(form.reasons[i])}</textarea></div></section>`).join('')}${errorBox()}<div class="form-actions"><button id="save-draft">บันทึกร่าง</button><button class="primary" id="review-form">ตรวจสอบก่อนส่ง</button></div>
+   ${L.dimensions.map((d,i)=>`<section class="rating-block tone-${i}"><h3>${i+1}. ${d} *</h3><p class="muted">${['ส่งมอบงานเสร็จภายใน Lead time ที่ตกลงไว้','งานถูกต้อง เรียบร้อย และครบถ้วนพร้อมใช้งาน','มารยาท ความสุภาพ และความเหมาะสมในการปฏิสัมพันธ์ ไม่ใช่ทักษะการนำเสนอ'][i]}</p><div class="stars" role="group" aria-label="คะแนน${d}">${[1,2,3,4,5].map(n=>`<button type="button" data-score="${i}:${n}" class="${n<=form.scores[i]?'on':''}" aria-pressed="${form.scores[i]===n}" aria-label="${d} ${n} ดาว">★</button>`).join('')}<span class="score-value">${form.scores[i]||'—'}/5</span></div><div class="field ${Number.isInteger(form.scores[i])&&form.scores[i]<=3?'reason':''}"><label for="reason-${i}">เหตุผลด้าน${d} ${Number.isInteger(form.scores[i])&&form.scores[i]<=3?'* จำเป็นสำหรับคะแนน 1–3 ดาว':'(ไม่บังคับสำหรับ 4–5 ดาว)'}</label><textarea id="reason-${i}" maxlength="500" ${Number.isInteger(form.scores[i])&&form.scores[i]<=3?'required':''} placeholder="เล่าสถานการณ์และผลต่องานสั้น ๆ อย่างสุภาพ">${esc(form.reasons[i])}</textarea></div></section>`).join('')}${errorBox()}<div class="form-actions"><button id="save-draft" type="button" ${draftSave?'disabled':''}>${draftSave?'กำลังบันทึก…':'บันทึกร่าง'}</button><button class="primary" id="review-form" ${draftSave?'disabled':''}>ตรวจสอบก่อนส่ง</button></div>
   </section>
   <div class="assessment-back-row"><button id="change-target" class="assessment-back" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14 6-6 6 6 6"/></svg><span>กลับ</span></button></div>
  </div>`;
 }
 function errorBox(){return errors.length?`<div class="error" role="alert" tabindex="-1" id="form-errors">${errors.map(esc).join('<br>')}</div>`:''}
 function bars(result){return `<div class="result-bars">${L.dimensions.map((d,i)=>`<div><span>${d}</span><div class="bar"><span style="width:${(result.dims[i].mean||0)/5*100}%;background:${['#b89dd4','#79b4b3','#db9eaa'][i]}"></span></div><strong>${fmt(result.dims[i].mean)}</strong></div>`).join('')}</div>`}
-function myPortal(){return `${head('ประวัติการประเมิน','ดูรายการที่คุณส่งในแต่ละรอบ')}${Scores.notice()}${Scores.historyAvailable()?myHistory():''}`;}
+function myPortal(){return `${head('ประวัติการประเมิน','ดูรายการที่คุณส่งในแต่ละรอบ','',false)}${Scores.notice()}${Scores.historyAvailable()?myHistory():''}`;}
 const DEPARTMENT_AVATARS=['hr','ba','marketing','sales','operations','it','accounting','finance','tailoring','management'];
 function departmentAvatar(department){
  const label=String(department||'').trim(),value=label.normalize('NFKC').toLowerCase();
@@ -162,7 +277,23 @@ function departmentAvatar(department){
 function sentHistoryEntry(h){
  const name=h.name||person(h.target)?.name||'ผู้ร่วมงาน',dept=h.department||person(h.target)?.dept||'',answers=new Map((h.answers||[]).map(a=>[a.dimension,a]));
  const date=new Date(h.created).toLocaleDateString('th-TH',{timeZone:'Asia/Bangkok'});
- return `<article class="sent-history-entry"><header class="sent-history-person">${departmentAvatar(dept)}<div class="sent-history-name"><h3>${esc(name)}</h3><p>${esc(dept)}</p><p class="muted">${roundName(h.round)} · ${date}</p></div><span class="pill green">ส่งแล้ว</span></header>${h.context?`<p class="sent-history-context"><strong>โปรเจกต์ / งานที่ทำร่วมกัน</strong> ${esc(h.context)}</p>`:''}<div class="sent-history-scores" role="group" aria-label="คะแนนที่ส่งให้ ${esc(name)}">${L.dimensions.map(d=>{const a=answers.get(d);return `<section class="sent-history-dimension"><div><h4>${d}</h4><strong class="sent-score"><span aria-hidden="true">★</span> ${a?a.score+' / 5':'—'}</strong></div>${a?.reason?`<p class="sent-history-reason">${esc(a.reason)}</p>`:''}</section>`}).join('')}</div>${answers.size<3?'<p class="muted history-details-waiting">รายละเอียดคะแนนจะแสดงเมื่อพร้อม</p>':''}</article>`;
+ const details=answers.size===3?`<div class="sent-history-scores" role="group" aria-label="คะแนนที่ส่งให้ ${esc(name)}">${L.dimensions.map(d=>{
+  const a=answers.get(d);
+  return `<section class="sent-history-dimension"><div><h4>${d}</h4><strong class="sent-score"><span aria-hidden="true">★</span> ${a.score} / 5</strong></div>${a.reason?`<p class="sent-history-reason">${esc(a.reason)}</p>`:''}</section>`;
+ }).join('')}</div>`:'';
+ return `<article class="sent-history-entry"><header class="sent-history-person">${departmentAvatar(dept)}<div class="sent-history-name"><h3>${esc(name)}</h3><p>${esc(dept)}</p><p class="muted">${roundName(h.round)} · ${date}</p></div><span class="pill green">ส่งแล้ว</span></header>${h.context?`<p class="sent-history-context"><strong>โปรเจกต์ / งานที่ทำร่วมกัน</strong> ${esc(h.context)}</p>`:''}${details}</article>`;
+}
+function historyMonthButtons(months){
+ const years=[...new Set(months.map(m=>m.slice(0,4)))].reverse();
+ return `<div class="history-month-slicer" role="group" aria-labelledby="history-round-label">
+  <button type="button" class="history-all-months" data-history-round="all" aria-pressed="${historyRound==='all'}">ทุกเดือน</button>
+  ${years.map(year=>`<div class="history-month-year" role="group" aria-label="พ.ศ. ${Number(year)+543}">${years.length>1?`<span>${Number(year)+543}</span>`:''}
+   ${months.filter(m=>m.startsWith(year)).reverse().map(round=>{
+    const month=new Date(round+'-01T12:00:00Z').toLocaleDateString('th-TH',{timeZone:'Asia/Bangkok',month:'short'});
+    return `<button type="button" class="history-month" data-history-round="${round}" aria-pressed="${historyRound===round}" aria-label="${roundName(round)}" title="${roundName(round)}">${month}</button>`;
+   }).join('')}
+  </div>`).join('')}
+ </div>`;
 }
 function myHistory(){
  const allRows=[...Scores.history()].sort((a,b)=>new Date(b.created)-new Date(a.created));
@@ -174,7 +305,7 @@ function myHistory(){
  const latestDate=latest?new Date(latest.created).toLocaleDateString('th-TH',{timeZone:'Asia/Bangkok',day:'numeric',month:'short',year:'numeric'}):'—';
  const summaryTable='<div class="history-table-wrap"><table class="history-count-table"><caption class="sr-only">จำนวนแบบประเมินที่ส่งในแต่ละรอบ</caption><thead><tr><th scope="col">รอบประเมิน</th><th scope="col">จำนวนที่ส่ง (รายการ)</th></tr></thead><tbody>'+summaryMonths.map(m=>'<tr><th scope="row">'+roundName(m)+'</th><td>'+rows.filter(h=>h.round===m).length+'</td></tr>').join('')+'</tbody><tfoot><tr><th scope="row">รวม</th><td>'+rows.length+'</td></tr></tfoot></table></div>';
  const entries=rows.map(sentHistoryEntry).join('');
- return '<section class="card form-wrap history-filter"><div class="field"><span class="field-title" id="history-round-label">รอบประเมิน</span><div class="history-month-slicer" role="group" aria-labelledby="history-round-label"><button type="button" data-history-round="all" aria-pressed="'+(historyRound==='all')+'">ทุกเดือน</button>'+months.slice().reverse().map(r=>'<button type="button" data-history-round="'+r+'" aria-pressed="'+(historyRound===r)+'">'+roundName(r)+'</button>').join('')+'</div></div><p class="muted">ส่งแล้วแก้ไขไม่ได้ · หน้านี้แสดงเฉพาะรายการที่คุณส่ง</p></section>'+
+ return '<section class="card form-wrap history-filter"><div class="field"><span class="field-title" id="history-round-label">รอบประเมิน</span>'+historyMonthButtons(months)+'</div><p class="muted">ส่งแล้วแก้ไขไม่ได้ · หน้านี้แสดงเฉพาะรายการที่คุณส่ง</p></section>'+
  (rows.length?'<section class="card history-summary-card"><div class="history-summary-heading"><div><p class="eyebrow">MY FEEDBACK SUMMARY</p><h2>สรุปประวัติการประเมิน</h2><p class="muted">'+(historyRound==='all'?'ทุกเดือน':roundName(historyRound))+'</p></div><div class="history-summary-total"><strong>'+rows.length+'</strong><span>รายการ</span></div></div><div class="history-summary-stats"><div><span>แผนกที่ร่วมประเมิน</span><strong>'+deptCount+'</strong></div><div><span>ส่งล่าสุด</span><strong>'+latestDate+'</strong></div></div>'+summaryTable+'<details class="history-details" open><summary>ดูรายการที่ส่ง ('+rows.length+')</summary><div class="history-entry-list">'+entries+'</div></details></section>':'<section class="card history-summary-empty"><div class="history-empty-mark" aria-hidden="true">✦</div><h2>ยังไม่มีประวัติในรอบนี้</h2><p class="muted">รายการที่คุณส่งจะสรุปให้ดูที่หน้านี้</p><button class="primary" data-nav="rate">เริ่มประเมิน</button></section>');
 }
 function myScore(){const result=getResult('me');if(db.round!=='released')return `<section class="card form-wrap empty">${mascot(3,'mascot-result')}<h2>รอการเผยแพร่ผล</h2><p class="muted">คะแนนรอบ ${roundName(Scores.round())} จะเปิดพร้อมกัน<br>หลัง HR ตรวจสอบเสร็จและมีข้อมูลผ่านเกณฑ์</p><span class="pill">${statusLabel()}</span></section><section class="card form-wrap" style="margin-top:18px"><h3>คะแนนเป็นเรื่องส่วนตัว</h3><p class="muted">คุณเห็นเฉพาะผลของตัวเอง ไม่เห็นคะแนนของเพื่อนร่วมงาน และไม่เห็นชื่อผู้ประเมิน</p></section>`;
@@ -211,10 +342,8 @@ function bind(){
  $('#retry-directory')?.addEventListener('click',()=>void loadDirectory());
  $('#directory-relogin')?.addEventListener('click',signOut);
  document.querySelectorAll('[data-nav]').forEach(b=>b.onclick=()=>go(b.dataset.nav));
- $('#notifications')?.addEventListener('click',()=>void Scores.openNotifications({showDialog,notificationKey}));
+ $('#notifications')?.addEventListener('click',()=>{if(role==='hr')go('queue');else void Scores.openNotifications({showDialog,notificationKey});});
  $('#logout').onclick=()=>showDialog('<h2 id="modal-title">ยืนยันออกจากระบบ?</h2><p class="muted">ต้องการออกจาก CUBIC CONNECT ใช่ไหม</p><div class="form-actions"><button class="secondary" id="cancel-logout">ยกเลิก</button><button class="danger" id="confirm-logout">ออกจากระบบ</button></div>',d=>{d.querySelector('#cancel-logout').onclick=()=>d.close();d.querySelector('#confirm-logout').onclick=()=>{d.close();signOut()}},'',false);
- $('#reset')?.addEventListener('click',()=>showDialog('<h2 id="modal-title">ล้างร่างในเครื่อง?</h2><p class="muted">ล้างเฉพาะแบบร่างในอุปกรณ์นี้ ผลประเมินที่ส่งสำเร็จแล้วยังคงอยู่</p><button class="danger" id="confirm-reset">ล้างร่าง</button>',d=>d.querySelector('#confirm-reset').onclick=()=>{db.drafts={};save();d.close();go('home')}));
- $('#reset-mobile')?.addEventListener('click',()=>$('#reset')?.click());
  document.querySelectorAll('[data-start]').forEach(b=>b.onclick=()=>start(b.dataset.start));
  $('[data-open-score]')?.addEventListener('click',()=>{tab='score';go('results')});
  $('#department')?.addEventListener('change',e=>{const next=e.target.value;if(!rememberTargetDraft()){e.target.value=form?person(form.target).dept:formDept;return}invalidatePickerCheck();formDept=next;pickerTarget='';form=null;stage='edit';errors=[];render()});
@@ -223,27 +352,30 @@ function bind(){
  $('#begin-person')?.addEventListener('click',()=>{const dept=$('#department')?.value,id=$('#target-person')?.value;if(directory.status!=='ready'||!dept||!id||!eligible.includes(id)||person(id)?.dept!==dept){toast('กรุณาเลือกแผนกและคนที่จะประเมินให้ครบ');return}pickerContext=$('#context')?.value||'';if(submitted(id)){pickerTarget=id;render();revealPickerStatus();return}start(id)});
  document.querySelectorAll('[data-no-work]').forEach(b=>b.onclick=()=>showDialog('<h2 id="modal-title">ไม่ได้ร่วมงานในรอบนี้?</h2><p class="muted">ยืนยันเฉพาะกรณีที่ไม่ได้ประสานงานจริง จะไม่ให้คะแนนและไม่คิดเป็น 0</p><button id="confirm-no-work" class="secondary">ยืนยันไม่ได้ร่วมงาน</button>',d=>d.querySelector('#confirm-no-work').onclick=()=>{db.notWorked.push(b.dataset.noWork);delete db.drafts[b.dataset.noWork];save();d.close();render()}));
  document.querySelectorAll('[data-score]').forEach(b=>b.onclick=()=>{collect();const [i,n]=b.dataset.score.split(':').map(Number);form.scores[i]=n;render();if(n<=3)$('#reason-'+i)?.focus({preventScroll:true})});
- $('#save-draft')?.addEventListener('click',()=>{collect();db.drafts[form.target]=structuredClone(form);if(save())toast('บันทึกร่างแล้ว กลับมาทำต่อได้')});
+ $('#save-draft')?.addEventListener('click',()=>void saveDraft());
  $('#change-target')?.addEventListener('click',()=>go('rate'));
  $('#review-form')?.addEventListener('click',()=>{collect();errors=L.validate(form,db.round,db.records,eligible,Scores.round());if(!errors.length)stage='review';render();$('#form-errors')?.focus()});
  $('#edit-form')?.addEventListener('click',()=>{stage='edit';render()});
  $('#submit-form')?.addEventListener('click',async()=>{
   if(Scores.sending())return;
   errors=L.validate(form,db.round,[],eligible,Scores.round());if(errors.length){render();return}
-  const identity=GlowLogin.profile()?.id,target=form.target,button=$('#submit-form');button.disabled=true;button.textContent='กำลังส่ง…';
+  const identity=GlowLogin.profile()?.id,submittedForm=form,target=form.target,button=$('#submit-form');button.disabled=true;button.textContent='กำลังส่ง…';
   try{
-   await Scores.submit({target_id:target,round:Scores.round(),scores:[...form.scores],reasons:[...form.reasons],context:form.context});
+   await Scores.submit({target_id:target,round:form.round||Scores.round(),scores:[...form.scores],reasons:[...form.reasons],context:form.context},person(target));
    if(!GlowLogin.active()||GlowLogin.profile()?.id!==identity)return;
-   delete db.drafts[target];save();form=null;render();
+   delete db.drafts[target];save();
+   if(form!==submittedForm){toast('บันทึกผลประเมินครบ 3 ด้านแล้ว');return;}
+   form=null;render();
    showDialog('<h2 id="modal-title">ขอบคุณสำหรับการประเมินนะคะ</h2><p>บันทึกผลประเมินครบ 3 ด้านแล้ว</p>'+'<div class="form-actions"><button class="primary" id="next-person">ประเมินคนถัดไป</button><button class="secondary" id="view-sent-history">ดูประวัติการประเมิน</button><button class="ghost" id="back-home">กลับหน้าหลัก</button></div>',d=>{d.querySelector('#next-person').onclick=()=>{d.close();go('rate')};d.querySelector('#view-sent-history').onclick=()=>{d.close();go('results')};d.querySelector('#back-home').onclick=()=>{d.close();go('home')}});
   }catch(error){
    if(!GlowLogin.active()||GlowLogin.profile()?.id!==identity)return;
-   if(form?.target===target){db.drafts[target]=structuredClone(form);save();}
+   if(form!==submittedForm){toast(error.message);return;}
+   db.drafts[target]=structuredClone(form);save();
    errors=[error.message||'ยังยืนยันการบันทึกไม่ได้ กรุณาลองส่งอีกครั้ง'];render();$('#form-errors')?.focus();
   }
  });
  document.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>{tab=b.dataset.tab;render()});
- document.querySelectorAll('[data-history-round]').forEach(b=>b.onclick=()=>{historyRound=b.dataset.historyRound;render()});
+ document.querySelectorAll('[data-history-round]').forEach(b=>b.onclick=()=>{historyRound=b.dataset.historyRound;render();document.querySelector('[data-history-round="'+historyRound+'"]')?.focus()});
  $('#rocket-demo')?.addEventListener('click',showRocket);
  $('#queue-filter')?.addEventListener('change',e=>{queueFilter=e.target.value;render()});
  document.querySelectorAll('[data-review]').forEach(b=>b.onclick=()=>{

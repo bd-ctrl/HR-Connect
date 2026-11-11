@@ -1,6 +1,7 @@
-// Live score data only. Drafts remain local; a successful submission requires a Base receipt.
+// A successful submission requires a Base receipt. Drafts use a separate account-scoped store.
 (function(root){
  let state={status:'idle',data:null,error:'',code:''},generation=0,sequence=0,sending=false,refreshing=false,confirmedHistory=[],hooks={};
+ let heatmap={status:'idle',data:null,round:'',error:''};
  const e=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
  const active=()=>root.GlowLogin.active(),admin=()=>root.GlowLogin.profile()?.role==='admin';
  const emit=()=>hooks.render?.();
@@ -15,7 +16,7 @@
   for(const h of [...confirmedHistory,...(state.data?.history||[])]){const key=h.round+'|'+h.target,previous=merged.get(key);merged.set(key,{...previous,...h,answers:h.answers??previous?.answers,context:h.context??previous?.context});}
   return [...merged.values()];
  }
- function reset(){generation++;sequence++;state={status:'idle',data:null,error:'',code:''};sending=false;refreshing=false;confirmedHistory=[];}
+ function reset(){generation++;sequence++;state={status:'idle',data:null,error:'',code:''};heatmap={status:'idle',data:null,round:'',error:''};sending=false;refreshing=false;confirmedHistory=[];}
  function ready(){return state.status==='ready'&&!state.data.setup_required&&state.data.storage_private!==false;}
  function round(){return state.data?.round||'2026-10';}
  function dateLabel(value){return new Date(value).toLocaleDateString('th-TH',{timeZone:'Asia/Bangkok',day:'numeric',month:'short',year:'numeric'});}
@@ -50,7 +51,7 @@
   }
   return '';
  }
- async function submit(body){
+ async function submit(body,recipient){
   if(sending)throw Error('กำลังส่งการประเมิน กรุณารอสักครู่');
   const g=generation;sending=true;
   try{
@@ -60,9 +61,8 @@
    const receipt=await root.GlowLogin.request('/assessments',{method:'POST',body});
    if(g!==generation||!active())throw Object.assign(Error('บัญชีที่ใช้งานเปลี่ยนแล้ว'),{code:'session_changed'});
    if(receipt.persisted!==true||receipt.answers!==3||typeof receipt.assessment_id!=='string')throw Error('ยังยืนยันการบันทึกครบ 3 ด้านไม่ได้ กรุณาลองส่งอีกครั้ง');
-   // Keep details only after the persisted receipt confirms all three answers.
-   // Account memory bridges legacy receipts; Base remains the source for later sessions.
-   const entry=receipt.history_entry;
+   // Use the submitted answers only when Base confirms all three answers were saved.
+   const entry=receipt.history_entry||(recipient&&{target:body.target_id,round:body.round,name:recipient.name,department:recipient.dept,created:receipt.created});
    if(validHistory(entry)&&entry.target===body.target_id&&entry.round===body.round){
     const answers=['ความเร็ว','ความถูกต้อง','การสื่อสาร'].map((dimension,i)=>({dimension,score:body.scores?.[i],reason:String(body.reasons?.[i]||'').trim()}));
     confirmedHistory.push({...entry,...(!entry.answers&&validHistoryAnswers(answers)?{answers,context:String(body.context||'').trim()}: {})});
@@ -77,7 +77,7 @@
   if(state.status!=='ready')return notice();
   const d=state.data,missing=Array.isArray(d.missing)?d.missing:[],invalid=Array.isArray(d.invalid_fields)?d.invalid_fields:[];let out='';
   if(!d.storage_private)out+='<div class="error">ก่อนเก็บคะแนนจริง ให้จำกัดลิงก์ Base เป็นเฉพาะผู้มีสิทธิ์ แล้วตั้ง SCORE_STORAGE_PRIVATE เป็น true ใน Worker ระบบจะยังไม่รับผลประเมินจนกว่าจะตั้งค่านี้</div>';
-  if(d.setup_required)out+='<section class="card"><h2>ตั้งค่าการบันทึกคะแนนครั้งแรก</h2><p class="muted">ผู้ดูแลทำครั้งเดียวเมื่อติดตั้งระบบ พนักงานเริ่มส่งได้เมื่อการตั้งค่าครบ</p>'+(d.score_table_id?'<p>ตารางที่เชื่อมอยู่: <code>'+e(d.score_table_id)+'</code></p>':'')+(missing.length?'<h3>คอลัมน์ที่ยังขาด ('+missing.length+')</h3><ul>'+missing.map(name=>'<li>'+e(name)+'</li>').join('')+'</ul>':'')+(invalid.length?'<div class="error"><p>คอลัมน์ที่มีอยู่แต่ชนิดข้อมูลไม่รองรับ</p><ul>'+invalid.map(name=>'<li>'+e(name)+'</li>').join('')+'</ul><p>ให้ผู้ดูแลเทียบกับตารางเดิมก่อนดำเนินการ ระบบจะยังไม่เพิ่มคอลัมน์หรือเปลี่ยนข้อมูล</p></div>':'<p class="muted">ปุ่มนี้เพิ่มเฉพาะคอลัมน์ที่ขาด เก็บคอลัมน์และข้อมูลเดิมไว้</p><button class="primary" id="setup-live-scores" type="button">เตรียมตารางคะแนน</button>')+'</section>';
+  if(d.setup_required)out+='<section class="card"><h2>เตรียมตารางคะแนนใน Base</h2>'+(d.score_table_id?'<p>รหัสตาราง <code>'+e(d.score_table_id)+'</code></p>':'')+(missing.length?'<h3>คอลัมน์ที่ยังขาด ('+missing.length+')</h3><ul>'+missing.map(name=>'<li>'+e(name)+'</li>').join('')+'</ul>':'')+(invalid.length?'<div class="error"><p>กรุณาตรวจชนิดข้อมูลของคอลัมน์เหล่านี้ใน Base</p><ul>'+invalid.map(name=>'<li>'+e(name)+'</li>').join('')+'</ul></div>':'<p class="muted">เพิ่มคอลัมน์ที่ระบบต้องใช้บันทึกผลประเมิน</p><button class="primary" id="setup-live-scores" type="button">เตรียมตารางคะแนน</button>')+'</section>';
   return out;
  }
  function feedbackView(){
@@ -94,27 +94,79 @@
   const delta=score!==null&&p?.overall!==null&&p?.overall!==undefined?score-p.overall:null;
   return ui.head(greeting(),'ทุกความคิดเห็น ช่วยให้เราเติบโตไปด้วยกัน','',false)+feedbackView()+'<div class="employee-home-layout"><section class="card score-home-card score-home-card-featured"><div class="row"><div><p class="eyebrow">คะแนนที่ผ่านเกณฑ์และการตรวจสอบ</p><h2>คะแนนเฉลี่ยของฉัน</h2></div>'+ui.mascot(score===null?3:Math.round(score)).replace('mascot-aura ','mascot-aura score-home-mascot ')+'</div>'+notice()+(score===null?'<div class="score-pending"><strong>'+e(empty)+'</strong><p class="muted">'+e(detail)+'</p></div>':'<div class="score-home-value">'+score.toFixed(1)+'<span> / 5</span></div><p class="muted">ค่าเฉลี่ยจากผู้ประเมินที่ไม่ระบุตัวตน</p>')+(usable&&r.received?ui.bars(r):'')+'</section><div class="employee-home-support"><section class="card hero"><div class="copy"><div class="eyebrow">CUBIC CONNECT · PEOPLE & CULTURE</div><h2><span class="hero-line-one">ฟังกันมากขึ้น</span><br><span class="hero-line-two">เข้าใจกันมากขึ้น</span></h2><p class="muted">ประเมินคนที่ได้ร่วมงานจริง<br>เลือกแผนก ผู้ร่วมงาน และโปรเจกต์ในขั้นตอนถัดไป</p><button class="primary" data-nav="rate" '+(d?.round_state&&d.round_state!=='open'?'disabled':'')+'>เริ่มประเมินผู้ร่วมงาน</button></div>'+ui.mascot(4,'mascot')+'</section><section class="card month-comparison"><div class="row"><h2>เทียบกับเดือนก่อน</h2><span class="pill">'+e(monthLabel(round()))+'</span></div><div class="comparison-chart">'+comparison(p?monthLabel(p.round):'เดือนก่อน',usable?p.overall:null)+comparison(monthLabel(round()),score)+'</div><p class="comparison-delta">'+(delta===null?'แสดงแนวโน้มเมื่อทั้งสองเดือนมีคะแนนครบเกณฑ์':delta>0?'เพิ่มขึ้น '+delta.toFixed(1)+' คะแนน':delta<0?'ลดลง '+Math.abs(delta).toFixed(1)+' คะแนน':'เท่ากับเดือนก่อน')+'</p></section></div></div>';
  }
+ function pendingCount(){
+  return admin()&&state.data?.round_state!=='released'
+   ? (state.data?.reviews||[]).filter(r=>r.status==='รอ HR ตรวจสอบ').length : 0;
+ }
  function hrHome(ui){
-  const pending=(state.data?.reviews||[]).filter(r=>r.status==='รอ HR ตรวจสอบ').length;
-  return ui.head(greeting(),'ตรวจสอบผลประเมินจาก Base','',false)+setupNotice()+(ready()?'<div class="stats"><section class="card"><p class="muted">รอตรวจสอบ</p><div class="num">'+pending+'</div><p class="muted">คะแนนรายด้าน</p></section><section class="card"><p class="muted">รอบประเมิน</p><h2>'+e(monthLabel(round()))+'</h2></section></div><section class="card"><h2>ผลประเมินที่ต้องตรวจสอบ</h2><p class="muted">คะแนน 1–3 ดาวจะนำมาคำนวณหลังอนุมัติ ส่วนคะแนน 4–5 ดาวผ่านอัตโนมัติ โดยยังใช้เกณฑ์จำนวนผู้ประเมินรายด้าน</p><button class="primary" data-nav="queue">เปิดคิวตรวจสอบ</button></section>':'');
+  return ui.head(greeting(),'รอบประเมิน '+e(monthLabel(round())),'',false)+setupNotice()+(ready()?`
+   <section class="card hr-pending-card">
+    <div><h2>คะแนนรออนุมัติ</h2><p class="muted">คะแนน 1–3 ดาว รอตรวจสอบเป็นรายด้าน</p></div>
+    <button class="primary" type="button" data-nav="queue">ดูคิวอนุมัติ · ${pendingCount()} รายการ</button>
+   </section>`:'');
+ }
+ async function loadHeatmap(selected=''){
+  if(!active()||!admin())return;
+  const g=generation,previous=heatmap.data;
+  const loading=heatmap={status:'loading',data:previous,round:selected,error:''};
+  emit();
+  try{
+   const data=await root.GlowLogin.request('/hr/heatmap'+(selected?'?round='+encodeURIComponent(selected):''));
+   if(g!==generation||heatmap!==loading||!active())return;
+   if(!Array.isArray(data.rounds)||!Array.isArray(data.dimensions)||data.dimensions.length!==3||
+      !Array.isArray(data.rows)||data.rows.some(row=>typeof row.department!=='string'||!Array.isArray(row.means)||row.means.length!==3||!row.means.every(numeric))){
+    throw Error('ข้อมูล Heatmap ไม่ถูกต้อง');
+   }
+   data.rounds=[...new Set([...(previous?.rounds||[]),...data.rounds])].sort().reverse();
+   heatmap={status:'ready',data,round:data.round,error:''};
+  }catch(error){
+   if(g!==generation||heatmap!==loading||!active())return;
+   heatmap={status:'error',data:previous,round:selected,error:error.message};
+  }
+  emit();
+ }
+ function heatmapView(){
+  if(!ready())return setupNotice();
+  if(state.data.heatmap_available!==true)return '<section class="card"><h2>Heatmap</h2><p class="muted">Heatmap จะพร้อมใช้งานหลังอัปเดตระบบคะแนน</p></section>';
+  const d=heatmap.data,selected=heatmap.round||round();
+  const months=d?.rounds||[round()];
+  const table=d?.rows.length?`<div class="heatmap-table-wrap"><table class="heatmap-table">
+   <caption class="sr-only">คะแนนเฉลี่ยตามแผนกผู้รับและด้านที่ประเมิน</caption>
+   <thead><tr><th scope="col">แผนกผู้รับ</th>${d.dimensions.map(name=>`<th scope="col">${e(name)}</th>`).join('')}</tr></thead>
+   <tbody>${d.rows.map(row=>`<tr><th scope="row">${e(row.department)}</th>${row.means.map(mean=>mean===null
+    ? '<td class="heatmap-empty">ยังไม่ครบเกณฑ์</td>'
+    : `<td class="heatmap-value heatmap-band-${Math.floor(mean)}">${mean.toFixed(2)}</td>`).join('')}</tr>`).join('')}</tbody>
+  </table></div>`:'<p class="muted">ยังไม่มีผลประเมินในรอบนี้</p>';
+  return `<section class="card hr-heatmap" id="hr-heatmap">
+   <div class="heatmap-heading"><div><h2>Heatmap</h2><p class="muted">คะแนนเฉลี่ยตามแผนกผู้รับ · เฉพาะคะแนนที่ผ่านการตรวจและครบเกณฑ์</p></div>
+    <div class="field"><label for="heatmap-round">รอบประเมิน</label><select id="heatmap-round">${months.map(r=>`<option value="${e(r)}" ${r===selected?'selected':''}>${e(monthLabel(r))}</option>`).join('')}</select></div></div>
+   ${heatmap.status==='ready'?table:heatmap.status==='error'?'<p class="error" role="alert">'+e(heatmap.error)+'</p><button class="secondary" id="retry-heatmap">โหลดอีกครั้ง</button>':'<p class="muted" role="status">กำลังโหลด Heatmap…</p>'}
+  </section>`;
  }
  function hrView(page,ui){
   if(page==='home')return hrHome(ui);
-  if(page==='admin')return ui.head('ตั้งค่าระบบคะแนน','ใช้ตารางคะแนนใน Base HR Connect','',false)+setupNotice()+(ready()?'<section class="card"><h2>เชื่อมตารางคะแนนแล้ว</h2><p>รอบ '+e(monthLabel(round()))+' · ขั้นต่ำ '+state.data.policy.minimum_raters+' ผู้ประเมินต่อด้าน</p><p class="muted">รอบและสถานะรับประเมินกำหนดผ่าน EVALUATION_ROUND และ ROUND_STATE ใน Worker</p><button class="secondary" data-score-reload>ตรวจการเชื่อมต่ออีกครั้ง</button></section>':'');
-  if(page!=='queue')return ui.head('รายงานรวม','ข้อมูลรายงานส่วนนี้ยังไม่ได้เชื่อมกับ Base','',false)+'<section class="card"><p class="muted">ใช้คิวตรวจสอบเพื่อตรวจผลประเมินจริงที่บันทึกใน Base ได้</p><button class="primary" data-nav="queue">ไปคิวตรวจสอบ</button></section>';
+  if(page==='admin')return ui.head('การเชื่อมต่อ Base','ตรวจตารางและคอลัมน์ที่ใช้บันทึกผลประเมิน','',false)+setupNotice()+(ready()?'<section class="card"><h2>ตารางคะแนนพร้อมใช้งาน</h2><p class="muted">รอบ '+e(monthLabel(round()))+' · ขั้นต่ำ '+state.data.policy.minimum_raters+' ผู้ประเมินต่อด้าน</p><button class="secondary" data-score-reload>ตรวจการเชื่อมต่ออีกครั้ง</button></section>':'');
+  if(page!=='queue')return ui.head('วิเคราะห์','ผลประเมินจาก Lark Base','',false)+heatmapView();
   const rows=state.data?.reviews||[];
-  return ui.head('คิวตรวจสอบข้อเท็จจริง','คะแนน 1–3 ดาว · เฉพาะ HR','',false)+setupNotice()+(ready()?'<section class="card"><button class="secondary" data-score-reload>โหลดรายการล่าสุด</button>'+rows.map(r=>'<article class="review-case"><div class="row"><div><p class="eyebrow">'+e(r.dimension)+'</p><h3>'+e(r.name)+' · '+e(r.department)+'</h3></div><span class="pill rose">'+r.score+' / 5</span></div><p class="muted">'+e(dateLabel(r.created))+'</p><blockquote>'+e(r.reason)+'</blockquote>'+(r.context?'<p class="muted">โปรเจกต์: '+e(r.context)+'</p>':'')+'<p>'+e(r.status)+'</p>'+(r.status==='รอ HR ตรวจสอบ'?'<div class="btn-group"><button class="secondary" data-live-review="'+e(r.record_id)+'" data-decision="approved">Approve</button><button class="danger" data-live-review="'+e(r.record_id)+'" data-decision="rejected">Reject</button></div>':'<p class="muted">'+e(r.note)+'</p>')+'</article>').join('')+(!rows.length?'<div class="empty"><h3>ไม่มีคะแนนที่ต้องตรวจสอบ</h3></div>':'')+'</section>':'');
+  return ui.head('อนุมัติคะแนน','คะแนน 1–3 ดาว · เฉพาะ HR','',false)+setupNotice()+(ready()?'<section class="card"><button class="secondary" data-score-reload>โหลดรายการล่าสุด</button>'+rows.map(r=>'<article class="review-case"><div class="row"><div><p class="eyebrow">'+e(r.dimension)+'</p><h3>'+e(r.name)+' · '+e(r.department)+'</h3></div><span class="pill rose">'+r.score+' / 5</span></div><p class="muted">'+e(dateLabel(r.created))+'</p><blockquote>'+e(r.reason)+'</blockquote>'+(r.context?'<p class="muted">โปรเจกต์ '+e(r.context)+'</p>':'')+'<p>'+e(r.status)+'</p>'+(r.status==='รอ HR ตรวจสอบ'&&state.data.round_state!=='released'?'<div class="btn-group"><button class="secondary" data-live-review="'+e(r.record_id)+'" data-decision="approved">อนุมัติ</button><button class="danger" data-live-review="'+e(r.record_id)+'" data-decision="rejected">ไม่อนุมัติ</button></div>':r.note?'<p class="muted">'+e(r.note)+'</p>':'')+'</article>').join('')+(!rows.length?'<div class="empty"><h3>ไม่มีคะแนนที่ต้องตรวจสอบ</h3></div>':'')+'</section>':'');
  }
  async function openNotifications(ui){
-  await load();if(!active())return;
+  const g=generation;
+  await load({quiet:true});if(g!==generation||!active()||admin())return;
   const rows=state.status==='ready'?state.data?.notifications||[]:[],grouped={};
   for(const r of rows){const date=dateLabel(r.created);grouped[date]=(grouped[date]||0)+r.count;}
   const total=rows.reduce((sum,r)=>sum+r.count,0);
-  const body=state.status==='error'?'<p class="muted">'+e(admin()?state.error:'การแจ้งเตือนจะแสดงที่นี่เมื่อพร้อม')+'</p>':total?'<p class="muted">มีฟีดแบ็กเข้ามาใน 30 วันล่าสุด '+total+' รายการ โดยไม่แสดงชื่อผู้ประเมิน</p>'+Object.entries(grouped).map(([day,count])=>'<div class="notification-item"><span>'+e(day)+'</span><strong>'+count+' รายการ</strong></div>').join(''):'<p class="muted">ยังไม่มีฟีดแบ็กใหม่ในช่วง 30 วันที่ผ่านมา</p>';
+  const body=state.status==='error'?'<p class="muted">การแจ้งเตือนจะแสดงที่นี่เมื่อพร้อม</p>':total?'<p class="muted">คุณได้รับฟีดแบ็ก '+total+' ชุดในช่วง 30 วันที่ผ่านมา</p>'+Object.entries(grouped).map(([day,count])=>'<div class="notification-item"><span>วันที่ส่ง '+e(day)+'</span><strong>ฟีดแบ็ก '+count+' ชุด</strong></div>').join(''):'<p class="muted">ยังไม่มีฟีดแบ็กใหม่ในช่วง 30 วันที่ผ่านมา</p>';
   if(state.status==='ready')try{localStorage.setItem(ui.notificationKey(),String(Date.now()));}catch{}
-  ui.showDialog('<h2 id="modal-title">การแจ้งเตือน</h2>'+body+'<button class="primary" id="close-live-notifications">ปิด</button>',dialog=>{dialog.querySelector('#close-live-notifications').onclick=()=>{dialog.close();emit();};});
+  ui.showDialog('<h2 id="modal-title">การแจ้งเตือน</h2>'+body+'<div class="notification-actions"><button class="danger" id="close-live-notifications" type="button">ปิด</button></div>',dialog=>{dialog.querySelector('#close-live-notifications').onclick=()=>{dialog.close();emit();};},'notification-dialog',false);
  }
  function bind(ui){
+  const heatmapRound=document.querySelector('#heatmap-round');
+  if(heatmapRound){
+   heatmapRound.onchange=()=>void loadHeatmap(heatmapRound.value);
+   document.querySelector('#retry-heatmap')?.addEventListener('click',()=>void loadHeatmap(heatmap.round));
+   if(heatmap.status==='idle')void loadHeatmap();
+  }
   document.querySelectorAll('[data-score-reload]').forEach(b=>b.onclick=()=>{if(['session_expired','directory_session_missing'].includes(state.code))ui.signOut();else void load();});
   document.querySelector('#setup-live-scores')?.addEventListener('click',async event=>{
    const b=event.currentTarget;b.disabled=true;b.textContent='กำลังเตรียมคอลัมน์…';
@@ -123,15 +175,19 @@
   document.querySelectorAll('[data-live-review]').forEach(b=>b.onclick=()=>{
    const id=b.dataset.liveReview,decision=b.dataset.decision,row=state.data?.reviews.find(r=>r.record_id===id);
    if(!row||row.status!=='รอ HR ตรวจสอบ')return;
-   ui.showDialog('<h2 id="modal-title">'+(decision==='approved'?'Approve':'Reject')+' · '+e(row.dimension)+'</h2><p>'+e(row.name)+' · '+row.score+' ดาว</p><div class="field"><label for="live-review-note">ผลตรวจสอบ / เหตุผลการตัดสินใจ</label><textarea id="live-review-note" maxlength="500" required></textarea></div><p id="live-review-error" class="error" hidden></p><button class="primary" id="save-live-review">ยืนยันผลตรวจสอบ</button>',dialog=>{
+   const rejected=decision==='rejected',needsNote=rejected||state.data.approval_note_optional!==true;
+   const label=rejected?'ไม่อนุมัติ':'อนุมัติ';
+   const noteField=needsNote?'<div class="field"><label for="live-review-note">'+(rejected?'เหตุผลที่ไม่อนุมัติ':'ผลตรวจสอบ')+'</label><textarea id="live-review-note" maxlength="500" required></textarea></div>':'';
+   ui.showDialog('<h2 id="modal-title">'+label+' · '+e(row.dimension)+'</h2><p>'+e(row.name)+' · '+row.score+' ดาว</p>'+noteField+'<p id="live-review-error" class="error" role="alert" hidden></p><div class="form-actions"><button class="secondary" id="cancel-live-review" type="button">ยกเลิก</button><button class="'+(rejected?'danger':'primary')+'" id="save-live-review" type="button">ยืนยัน'+label+'</button></div>',dialog=>{
+    dialog.querySelector('#cancel-live-review').onclick=()=>dialog.close();
     dialog.querySelector('#save-live-review').onclick=async()=>{
-     const note=dialog.querySelector('#live-review-note').value.trim(),error=dialog.querySelector('#live-review-error'),button=dialog.querySelector('#save-live-review');
-     if(!note){error.hidden=false;error.textContent='กรุณาระบุผลตรวจสอบก่อนยืนยัน';return;}
+     const field=dialog.querySelector('#live-review-note'),note=field?.value.trim(),error=dialog.querySelector('#live-review-error'),button=dialog.querySelector('#save-live-review');
+     if(needsNote&&!note){error.hidden=false;error.textContent=rejected?'กรุณาระบุเหตุผลที่ไม่อนุมัติ':'กรุณาระบุผลตรวจสอบ';field.focus();return;}
      button.disabled=true;
-     try{await root.GlowLogin.request('/hr/reviews/'+encodeURIComponent(id),{method:'POST',body:{decision,note}});dialog.close();await load();ui.toast('บันทึกผลตรวจสอบใน Base แล้ว');}catch(err){button.disabled=false;error.hidden=false;error.textContent=err.message;}
+     try{await root.GlowLogin.request('/hr/reviews/'+encodeURIComponent(id),{method:'POST',body:note?{decision,note}:{decision}});heatmap={status:'idle',data:null,round:'',error:''};dialog.close();await load();ui.toast('บันทึกผลตรวจสอบใน Base แล้ว');}catch(err){button.disabled=false;error.hidden=false;error.textContent=err.message;}
     };
    });
   });
  }
- root.CubicScores={configure:value=>{hooks=value;},start:()=>{reset();return load();},reset,load,ready,round,notice,submit,home,hrView,bind,openNotifications,status:()=>state.status,data:()=>state.data,sending:()=>sending,refreshing:()=>refreshing,history,historyAvailable:()=>Array.isArray(state.data?.history)||confirmedHistory.length>0};
+ root.CubicScores={configure:value=>{hooks=value;},start:()=>{reset();return load();},reset,load,ready,round,notice,submit,home,hrView,bind,openNotifications,pendingCount,status:()=>state.status,data:()=>state.data,sending:()=>sending,refreshing:()=>refreshing,history,historyAvailable:()=>Array.isArray(state.data?.history)||confirmedHistory.length>0};
 })(window);

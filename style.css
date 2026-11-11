@@ -203,9 +203,12 @@ dialog{border:1px solid #eee2dc;border-radius:25px;background:#fffaf4;color:var(
 @media(prefers-reduced-motion:reduce){.colleague-chat{animation:none!important}}
 
 /* Month slicer and sender-owned assessment details. */
-.history-month-slicer{display:flex;flex-wrap:wrap;gap:9px;margin-top:10px}
-.history-month-slicer button{min-height:44px;padding:9px 16px;background:#fffefa;border:1px solid #dfd7e9;color:#756289;font-size:14px;font-weight:600}
-.history-month-slicer button[aria-pressed="true"]{background:#6757bd;border-color:#6757bd;color:#fff;box-shadow:0 3px 10px #6757bd18}
+.history-month-slicer,.history-month-year{display:flex;align-items:center;flex-wrap:wrap;gap:9px}
+.history-month-slicer{margin-top:10px}
+.history-month-year>span{color:#625b6d;font-size:12px;font-weight:600}
+.history-month-slicer button{min-height:48px;padding:8px 15px;border:0;border-radius:24px;background:#eeedf0;color:#565262;font-size:14px;font-weight:600}
+.history-month-slicer .history-month{width:48px;height:48px;padding:0;border-radius:50%}
+.history-month-slicer button[aria-pressed="true"]{background:#563785;color:#fff}
 .history-filter .field{margin-bottom:16px}
 .sent-history-entry{padding:20px 0;border-bottom:1px solid #e6dfeb}
 .sent-history-entry:last-child{padding-bottom:0;border-bottom:0}
@@ -223,5 +226,39 @@ dialog{border:1px solid #eee2dc;border-radius:25px;background:#fffaf4;color:var(
 .sent-history-dimension h4{margin:0;color:#655578;font-size:13px;font-weight:600}
 .sent-score{color:#a67728;white-space:nowrap;font-size:14px}
 .sent-history-reason{margin:8px 0 0;color:#7c7185;font-size:12px;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.7}
-.history-details-waiting{font-size:12px;margin:10px 0 0}
 @media(max-width:640px){.history-month-slicer{gap:7px}.history-month-slicer button{padding:8px 12px;font-size:13px}.department-avatar{width:66px;height:66px;flex-basis:66px}.sent-history-person{gap:9px;flex-wrap:wrap}.sent-history-name h3{font-size:16px}.sent-history-scores{grid-template-columns:1fr}.sent-history-dimension{padding:12px 14px}.sent-history-person>.pill{font-size:10px;padding:3px 7px}}
+
+.topbar .notification-button {
+ display:inline-grid;place-items:center;position:relative;
+ width:44px;height:44px;min-width:44px;padding:0;
+ color:#644d83;background:transparent;border:0;box-shadow:none;
+}
+.topbar .notification-button:hover {color:#462a70;background:transparent;box-shadow:none}
+.notification-button svg {width:23px;height:23px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.notification-actions {display:flex;justify-content:center;margin-top:20px}
+.notification-actions .danger {min-width:96px;background:#b43e48;color:#fff}
+.notification-actions .danger:hover {background:#96333d}
+.notification-dialog .notification-item {gap:10px;flex-wrap:wrap}
+.role-picker-card h1 {margin:24px 0 20px;font-size:clamp(23px,5vw,30px)}
+.role-picker-actions {display:grid;gap:10px;margin-bottom:18px}
+.role-picker-actions button {width:100%;min-height:48px}
+.hr-pending-card,.heatmap-heading {display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
+.hr-pending-card h2,.heatmap-heading h2 {margin:0}
+.hr-pending-card p,.heatmap-heading p {margin:6px 0 0}
+.heatmap-heading .field {min-width:140px;margin:0}
+.heatmap-table-wrap {overflow-x:auto;margin-top:20px}
+.heatmap-table {width:100%;border-collapse:separate;border-spacing:5px;line-height:1.5;font-size:14px}
+.heatmap-table th {color:#51475d;padding:9px 8px;text-align:left}
+.heatmap-table td {text-align:center;padding:11px 6px;border-radius:8px}
+.heatmap-table .heatmap-value {font-weight:700;font-variant-numeric:tabular-nums}
+.heatmap-empty {background:#f0edf2;color:#62596b;font-size:12px}
+.heatmap-band-1 {background:#f4cdd1;color:#763943}
+.heatmap-band-2 {background:#f7dec7;color:#714726}
+.heatmap-band-3 {background:#e7daf3;color:#5d447b}
+.heatmap-band-4 {background:#d6c3ee;color:#4e2e76}
+.heatmap-band-5 {background:#654795;color:#fff}
+@media(max-width:420px){
+ .heatmap-table {font-size:12px;border-spacing:3px}
+ .heatmap-table th,.heatmap-table td {padding-inline:4px}
+ .heatmap-empty {font-size:10px}
+}
