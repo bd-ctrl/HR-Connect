@@ -248,13 +248,13 @@ dialog{border:1px solid #eee2dc;border-radius:25px;background:#fffaf4;color:var(
 }
 .role-picker-actions .role-option {
  position:relative;display:grid;place-items:center;aspect-ratio:1;width:100%;
- padding:8px;border-radius:18px;background:#5958ca;color:#fff;
+ padding:8px;border:2px solid #9a83bc;border-radius:18px;background:transparent;color:#654d8a;
  font-size:clamp(16px,4.8vw,21px);font-weight:700;
- transition:transform .24s ease-out,box-shadow .24s ease-out;
+ transition:transform .24s ease-out,border-color .24s ease-out;
 }
 .role-picker-actions .role-option:disabled {opacity:1;filter:none}
 .role-picker-actions .role-option[data-selected] {
- z-index:1;transform:scale(1.1);box-shadow:0 9px 22px #5958ca4a;
+ z-index:1;transform:scale(1.1);border-color:#775ca0;
 }
 .role-picker-card .role-back {display:inline-grid;place-items:center;width:44px;height:44px;padding:0;color:#5b427e}
 .role-back svg {width:23px;height:23px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
