@@ -134,6 +134,7 @@ try{
  const serialized=JSON.stringify(pending.data);yes(!serialized.includes('สถานการณ์สมมติ')&&!serialized.includes('recA')&&!serialized.includes('rater_id'));
  const q=await api('/hr/state',{token:hr});eq(q.status,200);eq(q.data.reviews.length,1);yes(!JSON.stringify(q.data).includes('CC_รหัสผู้ประเมิน'));
  eq(q.data.approval_note_optional,true);
+ eq(q.data.review_people,{pending:1,approved:0});
  eq(q.data.dashboard_available,true);
  eq((await api('/hr/heatmap',{token:a})).status,403);
  eq((await api('/hr/heatmap?round=2026-13',{token:hr})).status,400);
@@ -146,6 +147,7 @@ try{
  eq((await api('/hr/reviews/'+low,{token:a,body:{decision:'approved',note:'ผลทดสอบ'}})).status,403);
  eq((await api('/hr/reviews/'+low,{token:hr,body:{decision:'rejected',note:''}})).status,400);
  eq((await api('/hr/reviews/'+low,{token:hr,body:{decision:'approved'}})).status,200);
+ eq((await api('/hr/state',{token:hr})).data.review_people,{pending:0,approved:1});
  eq(records.find(row=>row.record_id===low).fields[F.reviewer],'recHR');
  eq(records.find(row=>row.record_id===low).fields[F.note],'');
  eq((await api('/hr/reviews/'+low,{token:hr,body:{decision:'approved'}})).status,200);
@@ -168,6 +170,7 @@ try{
  yes(!partialDashboard.rankings.departments.some(row=>row.department==='BA'));
  const allLow={...payload,target_id:'recD',scores:[2,3,1],reasons:['เหตุผลจำลองหนึ่ง','เหตุผลจำลองสอง','เหตุผลจำลองสาม']};
  eq((await api('/assessments',{token:b,body:allLow})).status,200);
+ eq((await api('/hr/state',{token:hr})).data.review_people,{pending:1,approved:1});
  const waitingLow=(await api('/me/state',{token:d})).data;
  eq(waitingLow.feedback,[]);eq(waitingLow.notifications,[]);
  yes((await api('/me/state',{token:b})).data.history.some(h=>h.target==='recD'));
