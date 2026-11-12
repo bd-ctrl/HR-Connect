@@ -69,11 +69,13 @@
     <div class="login-brand"><div class="logo">CUBIC CONNECT<span>✦</span></div></div>
     <h1 id="login-heading" tabindex="-1">เลือกรูปแบบการเข้าสู่ระบบ</h1>
     <div class="role-picker-actions">
-     <button type="button" class="secondary" id="role-employee">เข้าสู่ระบบแบบพนักงาน</button>
-     <button type="button" class="primary" id="role-admin">เข้าสู่ระบบแบบแอดมิน</button>
+     <button type="button" class="role-option" id="role-employee">พนักงาน</button>
+     <button type="button" class="role-option" id="role-admin">แอดมิน</button>
     </div>
     <p id="role-picker-error" class="error" role="alert" hidden></p>
-    <button type="button" class="ghost" id="role-back">กลับไปหน้าเข้าสู่ระบบ</button>
+    <button type="button" class="ghost role-back" id="role-back" aria-label="กลับไปหน้าเข้าสู่ระบบ" title="กลับไปหน้าเข้าสู่ระบบ">
+     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12H4m7-7-7 7 7 7"/></svg>
+    </button>
    </section></main>`;
   document.querySelector('#login-heading')?.focus();
   const employee=document.querySelector('#role-employee'),admin=document.querySelector('#role-admin'),back=document.querySelector('#role-back');
@@ -81,16 +83,23 @@
   back.onclick=()=>{generation++;code='';render(onLogin);document.querySelector('#employee-code')?.focus();};
   async function choose(role){
    const g=++generation;
+   const selected=role==='admin'?admin:employee;
+   selected.setAttribute('data-selected','true');
    employee.disabled=admin.disabled=true;error.hidden=true;
    try{
-    const result=await verifyEmployee(code,role);
+    const animation=matchMedia('(prefers-reduced-motion: reduce)').matches
+     ? Promise.resolve() : new Promise(resolve=>setTimeout(resolve,420));
+    const [result]=await Promise.all([verifyEmployee(code,role),animation]);
     if(g!==generation)return;
     code='';completeLogin(result,onLogin);
    }catch(err){
     if(g!==generation)return;
     error.textContent=loginError(err);error.hidden=false;
    }finally{
-    if(g===generation)employee.disabled=admin.disabled=false;
+    if(g===generation){
+     selected.removeAttribute('data-selected');
+     employee.disabled=admin.disabled=false;
+    }
    }
   }
   employee.onclick=()=>void choose('employee');
