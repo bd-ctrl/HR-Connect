@@ -201,7 +201,15 @@
   if(page==='hr')return ui.head('แดชบอร์ด HR','ภาพรวมการประเมินในแต่ละรอบ','',false)+dashboardView();
   if(page!=='queue')return hrHome(ui);
   const rows=state.data?.reviews||[];
-  return ui.head('อนุมัติคะแนน','คะแนน 1–3 ดาว · เฉพาะ HR','',false)+setupNotice()+(ready()?'<section class="card"><button class="secondary" data-score-reload>โหลดรายการล่าสุด</button>'+rows.map(r=>'<article class="review-case"><div class="row"><div><p class="eyebrow">'+e(r.dimension)+'</p><h3>'+e(r.name)+' · '+e(r.department)+'</h3></div><span class="pill rose">'+r.score+' / 5</span></div><p class="muted">'+e(dateLabel(r.created))+'</p><blockquote>'+e(r.reason)+'</blockquote>'+(r.context?'<p class="muted">โปรเจกต์ '+e(r.context)+'</p>':'')+'<p>'+e(r.status)+'</p>'+(r.status==='รอ HR ตรวจสอบ'&&state.data.round_state!=='released'?'<div class="btn-group"><button class="secondary" data-live-review="'+e(r.record_id)+'" data-decision="approved">อนุมัติ</button><button class="danger" data-live-review="'+e(r.record_id)+'" data-decision="rejected">ไม่อนุมัติ</button></div>':r.note?'<p class="muted">'+e(r.note)+'</p>':'')+'</article>').join('')+(!rows.length?'<div class="empty"><h3>ไม่มีคะแนนที่ต้องตรวจสอบ</h3></div>':'')+'</section>':'');
+  const people=state.data?.review_people;
+  const validCount=n=>Number.isSafeInteger(n)&&n>=0;
+  const progress=validCount(people?.pending)&&validCount(people?.approved)
+   ? `<section class="dashboard-counts" aria-label="ความคืบหน้าการอนุมัติรายคน">
+       <div class="card dashboard-count"><h2>เหลือรออนุมัติ</h2><p><strong>${people.pending}</strong> คน</p></div>
+       <div class="card dashboard-count"><h2>อนุมัติแล้ว</h2><p><strong>${people.approved}</strong> คน</p></div>
+      </section><p class="muted">นับตามผู้ถูกประเมินในรอบ ${e(monthLabel(round()))} คนที่ยังมีคะแนนค้างจะอยู่ในกลุ่มรออนุมัติ</p>`
+   : ready()?'<p class="muted">อัปเดต Worker เพื่อแสดงจำนวนผู้ถูกประเมินในคิวอนุมัติ</p>':'';
+  return ui.head('อนุมัติคะแนน','คะแนน 1–3 ดาว · เฉพาะ HR','',false)+setupNotice()+progress+(ready()?'<section class="card"><button class="secondary" data-score-reload>โหลดรายการล่าสุด</button>'+rows.map(r=>'<article class="review-case"><div class="row"><div><p class="eyebrow">'+e(r.dimension)+'</p><h3>'+e(r.name)+' · '+e(r.department)+'</h3></div><span class="pill rose">'+r.score+' / 5</span></div><p class="muted">'+e(dateLabel(r.created))+'</p><blockquote>'+e(r.reason)+'</blockquote>'+(r.context?'<p class="muted">โปรเจกต์ '+e(r.context)+'</p>':'')+'<p>'+e(r.status)+'</p>'+(r.status==='รอ HR ตรวจสอบ'&&state.data.round_state!=='released'?'<div class="btn-group"><button class="secondary" data-live-review="'+e(r.record_id)+'" data-decision="approved">อนุมัติ</button><button class="danger" data-live-review="'+e(r.record_id)+'" data-decision="rejected">ไม่อนุมัติ</button></div>':r.note?'<p class="muted">'+e(r.note)+'</p>':'')+'</article>').join('')+(!rows.length?'<div class="empty"><h3>ไม่มีคะแนนที่ต้องตรวจสอบ</h3></div>':'')+'</section>':'');
  }
  async function openNotifications(ui){
   const g=generation;
