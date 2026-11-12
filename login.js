@@ -65,17 +65,25 @@
   signedIn=true;loginNotice='';onLogin(profile.role);window.scrollTo(0,0);
  }
  function renderRolePicker(root,code,onLogin){
-  root.innerHTML=`<main class="login-page"><section class="login-card role-picker-card" aria-labelledby="login-heading">
-    <div class="login-brand"><div class="logo">CUBIC CONNECT<span>✦</span></div></div>
+  root.innerHTML=`<main class="login-page role-picker-page"><section class="role-picker-card" aria-labelledby="login-heading">
+    <div class="role-picker-header">
+     <button type="button" class="ghost role-back" id="role-back" aria-label="กลับไปหน้าเข้าสู่ระบบ" title="กลับไปหน้าเข้าสู่ระบบ">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12H4m7-7-7 7 7 7"/></svg>
+     </button>
+     <div class="role-picker-brand">CUBIC CONNECT<span aria-hidden="true">✦</span></div>
+    </div>
     <h1 id="login-heading" tabindex="-1">เลือกรูปแบบการเข้าสู่ระบบ</h1>
     <div class="role-picker-actions">
-     <button type="button" class="role-option" id="role-employee">พนักงาน</button>
-     <button type="button" class="role-option" id="role-admin">แอดมิน</button>
+     <button type="button" class="role-option" id="role-employee">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="3"/><path d="M5 20v-2a4 4 0 0 1 4-4h6a4 4 0 0 1 4 4v2"/></svg>
+      <span>พนักงาน</span>
+     </button>
+     <button type="button" class="role-option" id="role-admin">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s7-3 7-9V6l-7-3-7 3v6c0 6 7 9 7 9Z"/><path d="m9 12 2 2 4-4"/></svg>
+      <span>แอดมิน</span>
+     </button>
     </div>
     <p id="role-picker-error" class="error" role="alert" hidden></p>
-    <button type="button" class="ghost role-back" id="role-back" aria-label="กลับไปหน้าเข้าสู่ระบบ" title="กลับไปหน้าเข้าสู่ระบบ">
-     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12H4m7-7-7 7 7 7"/></svg>
-    </button>
    </section></main>`;
   document.querySelector('#login-heading')?.focus();
   const employee=document.querySelector('#role-employee'),admin=document.querySelector('#role-admin'),back=document.querySelector('#role-back');
