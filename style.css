@@ -299,6 +299,7 @@ dialog{border:1px solid #eee2dc;border-radius:25px;background:#fffaf4;color:var(
 .heatmap-table-wrap {overflow-x:auto;margin-top:20px}
 .heatmap-table {width:100%;border-collapse:separate;border-spacing:5px;line-height:1.5;font-size:14px}
 .heatmap-table th {color:#51475d;padding:9px 8px;text-align:left}
+.heatmap-table thead th[scope="col"]:not(:first-child) {text-align:center}
 .heatmap-table td {text-align:center;padding:11px 6px;border-radius:8px}
 .heatmap-table .heatmap-value {font-weight:700;font-variant-numeric:tabular-nums}
 .heatmap-empty {background:#f0edf2;color:#62596b;font-size:12px}
