@@ -307,6 +307,11 @@ dialog{border:1px solid #eee2dc;border-radius:25px;background:#fffaf4;color:var(
 .heatmap-band-3 {background:#e7daf3;color:#5d447b}
 .heatmap-band-4 {background:#d6c3ee;color:#4e2e76}
 .heatmap-band-5 {background:#654795;color:#fff}
+.heatmap-legend {margin-top:16px;color:#51475d;font-size:13px}
+.heatmap-legend p {margin:0 0 8px;font-weight:700}
+.heatmap-legend ul {display:flex;flex-wrap:wrap;gap:8px 16px;margin:0;padding:0;list-style:none}
+.heatmap-legend li {display:flex;align-items:center;gap:6px}
+.heatmap-swatch {display:grid;place-items:center;width:20px;height:16px;border-radius:4px;flex:none}
 @media(max-width:1050px){.dashboard-rankings{grid-template-columns:minmax(0,1fr)}}
 @media(max-width:420px){
  .hr-dashboard,.dashboard-counts {gap:10px}

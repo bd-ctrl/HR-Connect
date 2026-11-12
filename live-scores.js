@@ -150,6 +150,13 @@
   return `<section class="card hr-heatmap" aria-labelledby="dashboard-heatmap-title">
    <h2 id="dashboard-heatmap-title">Heatmap</h2><p class="muted">คะแนนเฉลี่ยรายด้านตามแผนกของผู้ถูกประเมิน</p>
    ${table}
+   <div class="heatmap-legend" role="group" aria-label="ความหมายของสี">
+    <p>ความหมายของสี</p>
+    <ul>
+     ${['1.00–1.99','2.00–2.99','3.00–3.99','4.00–4.99','5.00'].map((range,i)=>`<li><span class="heatmap-swatch heatmap-band-${i+1}" aria-hidden="true"></span>${range}</li>`).join('')}
+     <li><span class="heatmap-swatch heatmap-empty" aria-hidden="true">—</span>ยังไม่มีคะแนนที่ใช้คำนวณ</li>
+    </ul>
+   </div>
   </section>`;
  }
  function rankingView(rows,byPerson){
