@@ -297,7 +297,10 @@ dialog{border:1px solid #eee2dc;border-radius:25px;background:#fffaf4;color:var(
   padding:calc(24px + env(safe-area-inset-top)) max(20px,env(safe-area-inset-right)) calc(24px + env(safe-area-inset-bottom)) max(20px,env(safe-area-inset-left));
  }
  .role-picker-page .role-picker-actions {flex:1;grid-template-columns:minmax(0,1fr);grid-auto-rows:minmax(112px,1fr)}
- .role-picker-page .role-option {aspect-ratio:auto}
+ .role-picker-page .role-option {aspect-ratio:auto;gap:14px;line-height:1.35}
+ .role-picker-page .role-option svg {
+  width:clamp(48px,14vw,64px);height:clamp(48px,14vw,64px);flex-shrink:0;
+ }
  .role-picker-page .role-option[data-selected] {transform:scale(1.02)}
 }
 .logout-dialog .form-actions button{display:inline-flex;align-items:center;justify-content:center;gap:8px}
