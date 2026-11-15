@@ -28,10 +28,23 @@ function fixture(mode = 'success', accountDrafts = new Map()) {
     round:'2026-10',created:`2026-10-${27+i}T08:00:00Z`,
     answers:[{dimension:'ความถูกต้อง',score:4},{dimension:'การสื่อสาร',score:5},...(i===0?[{dimension:'ความเร็ว',score:5}]:[])]
   }));
-  if(mode==='hr-dashboard'||mode==='hr-legacy')setupPrepared=true;
+  if(['hr-dashboard','hr-legacy','hr-pending'].includes(mode))setupPrepared=true;
   class TestDate extends Date {constructor(...args){super(...(args.length?args:[clock]));}static now(){return clock;}}
   const context = {
-    document:{querySelector:selector=>selector==='#dashboard-round'&&!q('#app').innerHTML.includes('id="dashboard-round"')?null:q(selector),querySelectorAll:selector=>selector==='[data-history-round]'?[...q('#app').innerHTML.matchAll(/data-history-round="([^"]+)"/g)].map(([,round])=>{const b=q('[data-history-round="'+round+'"]');b.dataset={historyRound:round};return b;}):[],addEventListener(){}},
+    document:{
+      querySelector:selector=>selector==='#dashboard-round'&&!q('#app').innerHTML.includes('id="dashboard-round"')?null:q(selector),
+      querySelectorAll(selector){
+        const key={'[data-history-round]':'historyRound','[data-dashboard-round]':'dashboardRound'}[selector];
+        if(!key)return [];
+        const attribute=selector.slice(1,-1);
+        return [...q('#app').innerHTML.matchAll(new RegExp(attribute+'="([^"]+)"','g'))].map(([,round])=>{
+          const button=q('['+attribute+'="'+round+'"]');
+          button.dataset={[key]:round};
+          return button;
+        });
+      },
+      addEventListener(){}
+    },
     window:{scrollTo(){}},
     localStorage:{getItem:key=>storage.get(key)??null,setItem:(key,value)=>storage.set(key,value)},
     matchMedia:()=>({matches:true}),Date:TestDate,
@@ -48,7 +61,7 @@ function fixture(mode = 'success', accountDrafts = new Map()) {
         ok:true,employee:{id:'rec-self',nickname:isHR?'ADMIN':mode==='nickname-escape'?'<img src=x onerror="bad()">':'ผู้ทดสอบ',department:isHR?'HR':'BA',role:isHR?'admin':'employee'},
         ...(mode==='no-session'?{}:{session_token:'test-session-token',expires_in:900})
       });
-      if(url.endsWith('/hr/state'))return Response.json({ok:true,round:'2026-10',policy:{version:'test',minimum_raters:3},reviews:[],storage_private:true,dashboard_available:mode==='hr-dashboard',score_table_id:'tblScores',setup_required:mode==='hr-wrong-type'||!setupPrepared||mode==='hr-setup-stale',missing:setupPrepared&&mode!=='hr-setup-stale'?[]:['CC_รหัสผู้รับ'],invalid_fields:mode==='hr-wrong-type'?['คะแนนดาว']:[]});
+      if(url.endsWith('/hr/state'))return Response.json({ok:true,round:'2026-10',policy:{version:'test',minimum_raters:3},reviews:mode==='hr-pending'?[{record_id:'rec-review',score:2,reason:'เหตุผลจำลอง',status:'รอ HR ตรวจสอบ'}]:[],storage_private:true,dashboard_available:mode==='hr-dashboard',score_table_id:'tblScores',setup_required:mode==='hr-wrong-type'||!setupPrepared||mode==='hr-setup-stale',missing:setupPrepared&&mode!=='hr-setup-stale'?[]:['CC_รหัสผู้รับ'],invalid_fields:mode==='hr-wrong-type'?['คะแนนดาว']:[]});
       if(new URL(url).pathname==='/hr/heatmap'){
         const round=new URL(url).searchParams.get('round')||'2026-10',current=round==='2026-10';
         return Response.json({
@@ -367,7 +380,14 @@ ok(dashboardHtml.includes('แดชบอร์ด HR')&&!dashboardHtml.include
 ok(dashboardHtml.includes('ผู้ส่งการประเมิน</h2><p><strong>1</strong>')&&dashboardHtml.includes('ผู้ถูกประเมิน</h2><p><strong>2</strong>'));
 ok(dashboardHtml.includes('Heatmap')&&dashboardHtml.includes('4.00</td>')&&dashboardHtml.includes('อันดับบุคคล')&&dashboardHtml.includes('อันดับแผนก'));
 ok(dashboardHtml.includes('&lt;img src=x&gt;')&&!dashboardHtml.includes('<img src=x>'));
-hrDashboard.q('#dashboard-round').value='2025-10';hrDashboard.q('#dashboard-round').onchange();await tick();
+ok(dashboardHtml.includes('data-dashboard-round="2026-10" aria-pressed="true"')&&dashboardHtml.includes('พ.ศ. 2568'));
+await hrDashboard.q('[data-dashboard-round="2025-10"]').onclick();await tick();
+ok(hrDashboard.q('#app').innerHTML.includes('data-dashboard-round="2025-10" aria-pressed="true"'));
+hrDashboard.run("showDialog=html=>{globalThis.notificationHtml=html};$('#notifications').handlers.click()");
+ok(hrDashboard.run("page==='hr'&&notificationHtml.includes('ยังไม่มีรายการอัปเดต')"));
+const hrPending=fixture('hr-pending');await hrPending.login();await tick();
+hrPending.run("$('#notifications').handlers.click()");
+ok(hrPending.run("page==='queue'"));
 ok(hrDashboard.calls.some(c=>c.url.endsWith('/hr/heatmap?round=2025-10')));
 ok(hrDashboard.q('#app').innerHTML.includes('ผู้ส่งการประเมิน</h2><p><strong>0</strong>')&&!hrDashboard.q('#app').innerHTML.includes('ชื่อทดสอบ'));
 const legacyDashboard=fixture('hr-legacy');await legacyDashboard.login();await tick();legacyDashboard.run("go('hr')");await tick();
