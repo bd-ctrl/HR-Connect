@@ -176,11 +176,11 @@
     <tbody>${body}</tbody></table></div>`:'<p class="muted">ยังไม่มีคะแนนครบทั้ง 3 ด้านในรอบนี้</p>'}
   </section>`;
  }
- function dashboardView(){
+ function dashboardView(ui){
   if(!ready())return setupNotice();
   if(state.data.dashboard_available!==true)return '<section class="card"><p class="muted">เผยแพร่ Worker รุ่น scores-v3 เพื่อเปิดแดชบอร์ด HR</p></section>';
   const data=dashboard.data,selected=dashboard.round||round();
-  const months=data?.rounds||[round()],loading=['idle','loading'].includes(dashboard.status);
+  const months=[...new Set([round(),...(data?.rounds||[])])].sort(),loading=['idle','loading'].includes(dashboard.status);
   const summary=dashboard.status==='ready'?`
    <div class="dashboard-counts" role="group" aria-label="จำนวนคนไม่ซ้ำในรอบที่เลือก">
     <section class="card dashboard-count"><h2>ผู้ส่งการประเมิน</h2><p><strong>${data.counts.raters.toLocaleString('th-TH')}</strong> คน</p></section>
@@ -191,14 +191,14 @@
    : dashboard.status==='error'?'<p class="error" role="alert">'+e(dashboard.error)+'</p>':'<p class="muted" role="status">กำลังโหลดแดชบอร์ด…</p>';
   return `<div class="hr-dashboard">
    <div class="card dashboard-toolbar">
-    <div class="field"><label for="dashboard-round">รอบประเมิน</label><select id="dashboard-round">${months.map(r=>`<option value="${e(r)}" ${r===selected?'selected':''}>${e(monthLabel(r))}</option>`).join('')}</select></div>
+    <div class="field history-filter" id="dashboard-round">${ui.monthButtons(months,selected,{labelId:'dashboard-round-label',attribute:'data-dashboard-round'})}</div>
     <button class="secondary" id="refresh-dashboard" type="button" ${loading?'disabled':''}>${dashboard.status==='error'?'ลองอีกครั้ง':'โหลดข้อมูลล่าสุด'}</button>
    </div>
    ${summary}
   </div>`;
  }
  function hrView(page,ui){
-  if(page==='hr')return ui.head('แดชบอร์ด HR','ภาพรวมการประเมินในแต่ละรอบ','',false)+dashboardView();
+  if(page==='hr')return ui.head('แดชบอร์ด HR','ภาพรวมการประเมินในแต่ละรอบ','',false)+dashboardView(ui);
   if(page!=='queue')return hrHome(ui);
   const rows=state.data?.reviews||[];
   const people=state.data?.review_people;
@@ -224,7 +224,10 @@
  function bind(ui){
   const dashboardRound=document.querySelector('#dashboard-round');
   if(dashboardRound){
-   dashboardRound.onchange=()=>void loadDashboard(dashboardRound.value);
+   document.querySelectorAll('[data-dashboard-round]').forEach(button=>button.onclick=()=>{
+    const selected=button.dataset.dashboardRound;
+    if(selected!==(dashboard.round||round())||dashboard.status==='error')void loadDashboard(selected);
+   });
    document.querySelector('#refresh-dashboard')?.addEventListener('click',()=>void loadDashboard(dashboard.round));
    if(dashboard.status==='idle')void loadDashboard();
   }

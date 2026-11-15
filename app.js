@@ -131,7 +131,7 @@ function render(){
  </div>`;
  bind();Scores.bind({toast,showDialog,signOut});if(drill)openDrill(drill);if(role==='employee'&&['rate','results'].includes(page)&&directory.status==='idle')void loadDirectory();
 }
-function view(){if(role==='hr')return Scores.hrView(page,{head,mascot,bars});return ({home:home,rate:assessment,results:myPortal}[page]||home)()}
+function view(){if(role==='hr')return Scores.hrView(page,{head,monthButtons});return ({home:home,rate:assessment,results:myPortal}[page]||home)()}
 function home(){return Scores.home({head,mascot,bars})}
 function colleagueChat(){return '<span class="colleague-chat" aria-hidden="true"><img src="assets/colleagues-chat.webp" alt="" width="144" height="96"></span>'}
 function canStartAssessment(id,dept=person(id).dept){return !pickerChecking&&GlowLogin.active()&&directory.status==='ready'&&Boolean(dept)&&eligible.includes(id)&&person(id).dept===dept&&!submitted(id)&&!db.notWorked.includes(id)&&db.round==='open'}
@@ -279,18 +279,18 @@ function sentHistoryEntry(h){
  }).join('')}</div>`:'';
  return `<article class="sent-history-entry"><header class="sent-history-person"><div class="sent-history-name"><h3>${esc(name)}</h3><p>${esc(dept)}</p><p class="muted">${roundName(h.round)} · ${date}</p></div><span class="pill green">ส่งแล้ว</span></header>${h.context?`<p class="sent-history-context"><strong>โปรเจกต์ / งานที่ทำร่วมกัน</strong> ${esc(h.context)}</p>`:''}${details}</article>`;
 }
-function historyMonthButtons(months){
+function monthButtons(months,selected,{labelId,attribute,all=false}){
  const years=[...new Set(months.map(m=>m.slice(0,4)))].reverse();
  return `<div class="history-filter-heading">
-  <span class="field-title" id="history-round-label">รอบประเมิน</span>
-  <button type="button" class="history-all-months" data-history-round="all" aria-pressed="${historyRound==='all'}" aria-label="แสดงทุกรอบ" title="แสดงทุกรอบ">${ico('calendar')}</button>
+  <span class="field-title" id="${labelId}">รอบประเมิน</span>
+  ${all?`<button type="button" class="history-all-months" ${attribute}="all" aria-pressed="${selected==='all'}" aria-label="แสดงทุกรอบ" title="แสดงทุกรอบ">${ico('calendar')}</button>`:''}
  </div>
- <div class="history-month-slicer" role="group" aria-labelledby="history-round-label">
+ <div class="history-month-slicer" role="group" aria-labelledby="${labelId}">
   ${years.map(year=>`<div class="history-month-year" role="group" aria-label="พ.ศ. ${Number(year)+543}">
    <span class="history-year-label" aria-hidden="true">พ.ศ. ${Number(year)+543}</span>
    <div class="history-year-months">${months.filter(m=>m.startsWith(year)).reverse().map(round=>{
     const month=new Date(round+'-01T12:00:00Z').toLocaleDateString('th-TH',{timeZone:'Asia/Bangkok',month:'short'});
-    return `<button type="button" class="history-month" data-history-round="${round}" aria-pressed="${historyRound===round}" aria-label="${roundName(round)}" title="${roundName(round)}">${month}</button>`;
+    return `<button type="button" class="history-month" ${attribute}="${round}" aria-pressed="${selected===round}" aria-label="${roundName(round)}" title="${roundName(round)}">${month}</button>`;
    }).join('')}</div>
   </div>`).join('')}
  </div>`;
@@ -305,7 +305,7 @@ function myHistory(){
  const latestDate=latest?new Date(latest.created).toLocaleDateString('th-TH',{timeZone:'Asia/Bangkok',day:'numeric',month:'short',year:'numeric'}):'—';
  const summaryTable='<div class="history-table-wrap"><table class="history-count-table"><caption class="sr-only">จำนวนแบบประเมินที่ส่งในแต่ละรอบ</caption><thead><tr><th scope="col">รอบประเมิน</th><th scope="col">จำนวนที่ส่ง (รายการ)</th></tr></thead><tbody>'+summaryMonths.map(m=>'<tr><th scope="row">'+roundName(m)+'</th><td>'+rows.filter(h=>h.round===m).length+'</td></tr>').join('')+'</tbody><tfoot><tr><th scope="row">รวม</th><td>'+rows.length+'</td></tr></tfoot></table></div>';
  const entries=rows.map(sentHistoryEntry).join('');
- return '<section class="card form-wrap history-filter"><div class="field">'+historyMonthButtons(months)+'</div><p class="muted">ส่งแล้วแก้ไขไม่ได้ · หน้านี้แสดงเฉพาะรายการที่คุณส่ง</p></section>'+
+ return '<section class="card form-wrap history-filter"><div class="field">'+monthButtons(months,historyRound,{labelId:'history-round-label',attribute:'data-history-round',all:true})+'</div><p class="muted">ส่งแล้วแก้ไขไม่ได้ · หน้านี้แสดงเฉพาะรายการที่คุณส่ง</p></section>'+
  (rows.length?'<section class="card history-summary-card"><div class="history-summary-heading"><div><p class="eyebrow">MY FEEDBACK SUMMARY</p><h2>สรุปประวัติการประเมิน</h2><p class="muted">'+(historyRound==='all'?'ทุกรอบ':roundName(historyRound))+'</p></div><div class="history-summary-total"><strong>'+rows.length+'</strong><span>รายการ</span></div></div><div class="history-summary-stats"><div><span>แผนกที่ร่วมประเมิน</span><strong>'+deptCount+'</strong></div><div><span>ส่งล่าสุด</span><strong>'+latestDate+'</strong></div></div>'+summaryTable+'<details class="history-details" open><summary>ดูรายการที่ส่ง ('+rows.length+')</summary><div class="history-entry-list">'+entries+'</div></details></section>':'<section class="card history-summary-empty"><div class="history-empty-mark" aria-hidden="true">✦</div><h2>ยังไม่มีประวัติในรอบนี้</h2><p class="muted">รายการที่คุณส่งจะสรุปให้ดูที่หน้านี้</p><button class="primary" data-nav="rate">เริ่มประเมิน</button></section>');
 }
 function myScore(){const result=getResult('me');if(db.round!=='released')return `<section class="card form-wrap empty">${mascot(3,'mascot-result')}<h2>รอการเผยแพร่ผล</h2><p class="muted">คะแนนรอบ ${roundName(Scores.round())} จะเปิดพร้อมกัน<br>หลัง HR ตรวจสอบเสร็จและมีข้อมูลผ่านเกณฑ์</p><span class="pill">${statusLabel()}</span></section><section class="card form-wrap" style="margin-top:18px"><h3>คะแนนเป็นเรื่องส่วนตัว</h3><p class="muted">คุณเห็นเฉพาะผลของตัวเอง ไม่เห็นคะแนนของเพื่อนร่วมงาน และไม่เห็นชื่อผู้ประเมิน</p></section>`;
@@ -342,7 +342,16 @@ function bind(){
  $('#retry-directory')?.addEventListener('click',()=>void loadDirectory());
  $('#directory-relogin')?.addEventListener('click',signOut);
  document.querySelectorAll('[data-nav]').forEach(b=>b.onclick=()=>go(b.dataset.nav));
- $('#notifications')?.addEventListener('click',()=>{if(role==='hr')go('queue');else void Scores.openNotifications({showDialog,notificationKey});});
+ $('#notifications')?.addEventListener('click',()=>{
+  if(role!=='hr'){void Scores.openNotifications({showDialog,notificationKey});return;}
+  if(Scores.ready()&&Scores.pendingCount()>0){go('queue');return;}
+  const status=Scores.status();
+  const message=status==='ready'&&Scores.ready()?'ยังไม่มีรายการอัปเดต'
+   :status==='loading'||status==='idle'?'กำลังโหลดการแจ้งเตือน…':'ยังตรวจสอบการแจ้งเตือนไม่ได้';
+  showDialog(`<h2 id="modal-title">การแจ้งเตือน</h2><p class="muted">${message}</p><div class="notification-actions"><button class="danger" id="close-hr-notifications" type="button">ปิด</button></div>`,dialog=>{
+   dialog.querySelector('#close-hr-notifications').onclick=()=>dialog.close();
+  },'notification-dialog',false);
+ });
  $('#logout').onclick=()=>showDialog(`<h2 id="modal-title">ยืนยันออกจากระบบ?</h2><p class="muted">ต้องการออกจาก CUBIC CONNECT ใช่ไหม</p>
   <div class="form-actions"><button class="secondary" id="cancel-logout" type="button">${ico('undo')}<span>ยกเลิก</span></button>
   <button class="danger" id="confirm-logout" type="button">${ico('logout')}<span>ออกจากระบบ</span></button></div>`,d=>{
