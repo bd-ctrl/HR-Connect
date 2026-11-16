@@ -9,7 +9,7 @@
  const relNS='http://schemas.openxmlformats.org/officeDocument/2006/relationships';
  const packageNS='http://schemas.openxmlformats.org/package/2006/relationships';
  const col=index=>index<26?String.fromCharCode(65+index):col(Math.floor(index/26)-1)+col(index%26);
- function worksheet(rows,widths){
+ function worksheet(rows,widths,wrapFrom=Infinity){
   const bound=col(rows[0].length-1)+rows.length;
   return decl+`<worksheet xmlns="${sheetsNS}"><dimension ref="A1:${bound}"/>
    <sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>
@@ -18,7 +18,7 @@
     if(value===null||value===undefined)return '';
     const ref=col(j)+(i+1);
     if(typeof value==='number'&&Number.isFinite(value))return `<c r="${ref}"><v>${value}</v></c>`;
-    return `<c r="${ref}" t="inlineStr"><is><t xml:space="preserve">${xml(value)}</t></is></c>`;
+    return `<c r="${ref}" t="inlineStr"${i>0&&j>=wrapFrom?' s="1"':''}><is><t xml:space="preserve">${xml(value)}</t></is></c>`;
    }).join('')}</row>`).join('')}</sheetData><autoFilter ref="A1:${bound}"/></worksheet>`;
  }
  const crcTable=Uint32Array.from({length:256},(_,n)=>{
@@ -48,35 +48,56 @@
  }
  function workbook(sheets){
   const files=[
-   ['[Content_Types].xml',decl+`<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>${sheets.map((_,i)=>`<Override PartName="/xl/worksheets/sheet${i+1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join('')}</Types>`],
+   ['[Content_Types].xml',decl+`<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>${sheets.map((_,i)=>`<Override PartName="/xl/worksheets/sheet${i+1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join('')}</Types>`],
    ['_rels/.rels',decl+`<Relationships xmlns="${packageNS}"><Relationship Id="rId1" Type="${relNS}/officeDocument" Target="xl/workbook.xml"/></Relationships>`],
    ['xl/workbook.xml',decl+`<workbook xmlns="${sheetsNS}" xmlns:r="${relNS}"><sheets>${sheets.map(({name},i)=>`<sheet name="${xml(name)}" sheetId="${i+1}" r:id="rId${i+1}"/>`).join('')}</sheets></workbook>`],
-   ['xl/_rels/workbook.xml.rels',decl+`<Relationships xmlns="${packageNS}">${sheets.map((_,i)=>`<Relationship Id="rId${i+1}" Type="${relNS}/worksheet" Target="worksheets/sheet${i+1}.xml"/>`).join('')}</Relationships>`]
+   ['xl/_rels/workbook.xml.rels',decl+`<Relationships xmlns="${packageNS}">${sheets.map((_,i)=>`<Relationship Id="rId${i+1}" Type="${relNS}/worksheet" Target="worksheets/sheet${i+1}.xml"/>`).join('')}<Relationship Id="rIdStyles" Type="${relNS}/styles" Target="styles.xml"/></Relationships>`],
+   ['xl/styles.xml',decl+`<styleSheet xmlns="${sheetsNS}">
+    <fonts count="1"><font><sz val="11"/><name val="Calibri"/></font></fonts>
+    <fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills>
+    <borders count="1"><border/></borders><cellStyleXfs count="1"><xf/></cellStyleXfs>
+    <cellXfs count="2"><xf xfId="0"/><xf xfId="0" applyAlignment="1"><alignment vertical="top" wrapText="1"/></xf></cellXfs>
+    <cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>
+   </styleSheet>`]
   ];
-  sheets.forEach(({rows,widths},i)=>files.push([`xl/worksheets/sheet${i+1}.xml`,worksheet(rows,widths)]));
+  sheets.forEach(({rows,widths,wrapFrom},i)=>files.push([`xl/worksheets/sheet${i+1}.xml`,worksheet(rows,widths,wrapFrom)]));
   return zip(files);
  }
  const date=value=>value?new Date(value).toLocaleString('th-TH',{timeZone:'Asia/Bangkok'}):'';
- const scoreColumns=['ความเร็ว','ความถูกต้อง','การสื่อสาร','เฉลี่ยรวม','จำนวนผู้ประเมินที่ใช้คำนวณ'];
+ const dimensions=['ความเร็ว','ความถูกต้อง','การสื่อสาร'];
+ const scoreColumns=[...dimensions,'เฉลี่ยรวม','จำนวนผู้ประเมินที่ใช้คำนวณ'];
+ function commentCell(lines){
+  const text=lines.join('\n');
+  if(text.length<=30000&&lines.length<=220)return text;
+  const preview=lines.slice(0,220).join('\n').slice(0,30000).replace(/[\ud800-\udbff]$/,'');
+  return preview+'\n… ดูคอมเมนต์ครบในชีต “รายละเอียดรายคะแนน”';
+ }
  function report(reports){
   const rounds=[['รอบเดือน','ผู้ส่งการประเมิน','ผู้ถูกประเมิน','แบบประเมิน','คะแนนรอตรวจ','คะแนนอนุมัติ','คะแนนไม่อนุมัติ','คะแนนผ่านอัตโนมัติ']];
-  const people=[['รอบเดือน','รหัสผู้ถูกประเมิน','ผู้ถูกประเมิน','แผนก',...scoreColumns]];
+  const people=[['รอบเดือน','รหัสผู้ถูกประเมิน','ผู้ถูกประเมิน','แผนก',...scoreColumns,...dimensions.map(d=>'คอมเมนต์'+d)]];
   const departments=[['รอบเดือน','แผนก',...scoreColumns]];
   const detail=[['รอบเดือน','รหัสแบบประเมิน','รหัสผู้ถูกประเมิน','ผู้ถูกประเมิน','แผนก','รหัสผู้ประเมินแบบไม่ระบุชื่อ','วันเวลาที่ส่ง (ไทย)','โปรเจกต์','ด้านที่ประเมิน','คะแนน / 5','เหตุผลผู้ประเมิน','สถานะตรวจสอบ','หมายเหตุ HR','วันเวลาที่ตรวจ (ไทย)']];
   for(const {round,counts,people:recipients,departments:teams,submissions} of reports){
    const statuses=new Map();
+   const comments=new Map();
    for(const a of submissions)for(const answer of a.answers){
     statuses.set(answer.status,(statuses.get(answer.status)||0)+1);
+    if(answer.reason?.trim()){
+     if(!comments.has(a.target))comments.set(a.target,new Map(dimensions.map(d=>[d,[]])));
+     const line=answer.reason.trim().replace(/\s*\r?\n\s*/g,' ');
+     comments.get(a.target).get(answer.dimension)?.push(a.rater+' · '+line);
+    }
     detail.push([round,a.id,a.target,a.name,a.department,a.rater,date(a.created),a.context,answer.dimension,answer.score,answer.reason,answer.status,answer.note,date(answer.reviewedAt)]);
    }
    const statusCounts=['รอ HR ตรวจสอบ','อนุมัติ','ไม่อนุมัติ','ผ่านอัตโนมัติ'].map(status=>statuses.get(status)||0);
    rounds.push([round,counts.raters,counts.recipients,submissions.length,...statusCounts]);
-   for(const row of recipients)people.push([round,row.target,row.name,row.department,...row.means,row.overall,row.raters]);
+   for(const row of recipients)people.push([round,row.target,row.name,row.department,...row.means,row.overall,row.raters,
+    ...dimensions.map(d=>commentCell(comments.get(row.target)?.get(d)||[]))]);
    for(const row of teams)departments.push([round,row.department,...row.means,row.overall,row.raters]);
   }
   return workbook([
    {name:'สรุปรอบ',rows:rounds,widths:[15,22,20,16,18,18,19,23]},
-   {name:'รายบุคคล',rows:people,widths:[15,24,24,22,18,18,18,18,31]},
+   {name:'รายบุคคล',rows:people,widths:[15,24,24,22,18,18,18,18,31,52,52,52],wrapFrom:9},
    {name:'รายแผนก',rows:departments,widths:[15,24,18,18,18,18,31]},
    {name:'รายละเอียดรายคะแนน',rows:detail,widths:[15,27,24,24,22,32,28,36,20,15,55,24,48,28]}
   ]);
