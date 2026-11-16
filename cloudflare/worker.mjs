@@ -577,14 +577,14 @@ async function hrState(request,env,cfg) {
   const all=await groups(await scoreRows(env,[{field_name:sf('round'),operator:'is',value:[sc.round]}]));
   const pendingPeople=new Set(),approvedPeople=new Set();
   const review_assessments=all.filter(a=>a.scores.some(score=>score<=3)).map(a=>{
-    const {name,department,context,created}=a;
+    const {target,name,department,context,created}=a;
     const answers=a.rows.map((r,i)=>{
       const status=textValue(r.fields?.[sf('status')]);
       if(a.scores[i]<=3&&status===REVIEW.pending)pendingPeople.add(a.target);
       if(a.scores[i]<=3&&status===REVIEW.approved)approvedPeople.add(a.target);
       return {record_id:r.record_id,dimension:DIMENSIONS[i],score:a.scores[i],reason:a.reasons[i],status,note:textValue(r.fields?.[sf('note')])};
     });
-    return {name,department,context,created,answers};
+    return {target,name,department,context,created,answers};
   });
   const reviews=review_assessments.flatMap(({answers,...assessment})=>answers.filter(a=>a.score<=3).map(a=>({...assessment,...a})));
   for (const target of pendingPeople) approvedPeople.delete(target);
@@ -724,7 +724,7 @@ export default {
     if (origin&&origin!==(env.ALLOWED_ORIGIN||'https://bd-ctrl.github.io')) return reply(request,env,{ok:false,error:'origin_not_allowed',message:'ไม่อนุญาตให้เรียกจากเว็บไซต์นี้'},403);
     if (request.method==='OPTIONS') return reply(request,env,null,204);
     try {
-      if (['/','/health'].includes(url.pathname)&&request.method==='GET') return reply(request,env,{ok:true,service:'CUBIC CONNECT API',version:'scores-v3',capabilities:['employees','assessments','results','hr-review','feedback-threshold','sent-history-receipt','sent-history-details','role-selection','hr-heatmap','hr-dashboard','approval-note-optional','hr-review-person-counts','hr-dashboard-details','hr-excel-export','hr-review-assessments',...(env.DRAFTS_DB?['account-drafts']:[])]});
+      if (['/','/health'].includes(url.pathname)&&request.method==='GET') return reply(request,env,{ok:true,service:'CUBIC CONNECT API',version:'scores-v3',capabilities:['employees','assessments','results','hr-review','feedback-threshold','sent-history-receipt','sent-history-details','role-selection','hr-heatmap','hr-dashboard','approval-note-optional','hr-review-person-counts','hr-dashboard-details','hr-excel-export','hr-review-assessments','hr-review-person-groups',...(env.DRAFTS_DB?['account-drafts']:[])]});
       const methods={'/login':'POST','/employees':'GET','/me/state':'GET','/hr/state':'GET','/hr/heatmap':'GET','/hr/dashboard-details':'GET','/hr/setup':'POST','/assessments':'POST'};
       const review=url.pathname.match(/^\/hr\/reviews\/([\w-]{3,100})$/);
       const draft=url.pathname.match(/^\/me\/drafts\/([\w-]{3,100})$/);

@@ -57,14 +57,14 @@ const receivedInLast30Days=()=>Scores.status()==='ready'?(Scores.data()?.notific
 const unseenRatings=()=>{let seen=0;try{seen=Number(localStorage.getItem(notificationKey())||0)}catch{}return receivedInLast30Days().filter(r=>new Date(r.created).getTime()>seen)};
 const unseenRatingCount=()=>unseenRatings().reduce((sum,r)=>sum+r.count,0);
 const currentRows=()=>db.records.filter(r=>r.round===ROUND),getResult=(id,round=ROUND)=>L.aggregate(db.records.filter(r=>r.target===id&&r.round===round)),submitted=id=>Scores.history().some(h=>h.target===id&&h.round===Scores.round()),remaining=()=>eligible.filter(id=>!submitted(id)&&!db.notWorked.includes(id));
-function navigation(mobile=false){const items=role==='employee'?[['home','หน้าหลัก'],['rate','ประเมิน'],['results','ประวัติการประเมิน']]:[['home','หน้าหลัก'],['queue','อนุมัติคะแนน'],['hr','แดชบอร์ด']];return `<nav class="${mobile?'mobile-nav':'nav'}" aria-label="เมนูหลัก">${items.map(([id,title])=>`<button data-nav="${id}" class="${page===id?'active':''}" ${page===id?'aria-current="page"':''}>${mobileIco(id==='queue'?'rate':id)}<span>${title}</span></button>`).join('')}</nav>`}
+function navigation(mobile=false){const items=role==='employee'?[['home','หน้าหลัก'],['rate','ประเมิน'],['results','ประวัติการประเมิน']]:[['queue','อนุมัติคะแนน'],['hr','แดชบอร์ด HR']];return `<nav class="${mobile?'mobile-nav':'nav'}" aria-label="เมนูหลัก">${items.map(([id,title])=>`<button data-nav="${id}" class="${page===id?'active':''}" ${page===id?'aria-current="page"':''}>${mobileIco(id==='queue'?'rate':id)}<span>${title}</span></button>`).join('')}</nav>`}
 function head(title,sub,extra='',showRound=true){const roundLabel=showRound?`<div class="eyebrow">${role==='hr'?'HR ADMIN PORTAL · ':'รอบประเมิน '}${roundName(Scores.round())}</div>`:'';return `<div class="page-head"><div>${roundLabel}<h1>${title}</h1>${sub?`<p class="muted">${sub}</p>`: ''}</div>${extra}</div>`}
 function go(p){invalidatePickerCheck();rocketShown=false;if(form&&page==='rate'){collect();db.drafts[form.target]=structuredClone(form);save()}page=p;errors=[];form=null;pickerTarget='';pickerContext='';drill=null;render();window.scrollTo(0,0)}
 function resetDirectory(){invalidatePickerCheck();directoryGeneration++;eligible.splice(0);directory={status:'idle',people:[],departments:[],error:''};formDept='';pickerTarget=''}
 function afterLogin(loginRole){
  resetDirectory();const id=GlowLogin.profile?.()?.id;
  storageKey=id?KEY+':employee:'+encodeURIComponent(id):KEY+':legacy-session:'+Date.now();
- db=id?readDatabase(storageKey):seed();storageOK=true;page='home';role=loginRole==='admin'?'hr':'employee';form=null;draftSave=null;historyRound='all';render();void Scores.start();
+ db=id?readDatabase(storageKey):seed();storageOK=true;role=loginRole==='admin'?'hr':'employee';page=role==='hr'?'queue':'home';form=null;draftSave=null;historyRound='all';render();void Scores.start();
 }
 function signOut(reason=''){
  if(form){collect();db.drafts[form.target]=structuredClone(form);save()}
