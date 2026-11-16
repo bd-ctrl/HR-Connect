@@ -279,7 +279,7 @@
   },'dashboard-dialog');
  }
  function hrView(page,ui){
-  if(page==='hr')return ui.head('แดชบอร์ด HR','ภาพรวมการประเมินในแต่ละรอบ','',false)+dashboardView(ui);
+  if(page==='hr')return ui.head('แดชบอร์ด HR','','',false)+dashboardView(ui);
   if(page!=='queue')return hrHome(ui);
   const rows=state.data?.reviews||[];
   const people=state.data?.review_people;
