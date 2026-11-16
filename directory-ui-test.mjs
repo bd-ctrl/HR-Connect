@@ -407,7 +407,7 @@ const rolePicker=fixture('dual-role');
 await rolePicker.login();
 ok(!rolePicker.run('GlowLogin.active()')&&rolePicker.q('#app').innerHTML.includes('เลือกรูปแบบการเข้าสู่ระบบ'));
 ok(!rolePicker.q('#app').innerHTML.includes('0000911111111'));
-ok(rolePicker.q('#app').innerHTML.includes('id="login-heading" class="sr-only"')&&rolePicker.q('#app').innerHTML.indexOf('id="role-back"')>rolePicker.q('#app').innerHTML.indexOf('id="role-admin"'));
+ok(rolePicker.q('#app').innerHTML.includes('id="login-heading" class="sr-only"')&&rolePicker.q('#app').innerHTML.indexOf('id="role-back"')<rolePicker.q('#app').innerHTML.indexOf('class="role-picker-brand"'));
 rolePicker.q('#role-employee').onclick();
 await tick();
 ok(rolePicker.run('GlowLogin.profile().role')==='employee'&&rolePicker.calls.some(call=>call.url.endsWith('/me/state')));

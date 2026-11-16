@@ -67,6 +67,9 @@
  function renderRolePicker(root,code,onLogin){
   root.innerHTML=`<main class="login-page role-picker-page"><section class="role-picker-card" aria-labelledby="login-heading">
     <div class="role-picker-header">
+     <button type="button" class="ghost role-back" id="role-back" aria-label="กลับไปหน้าเข้าสู่ระบบ" title="กลับไปหน้าเข้าสู่ระบบ">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12H4m7-7-7 7 7 7"/></svg>
+     </button>
      <div class="role-picker-brand">CUBIC CONNECT<span aria-hidden="true">✦</span></div>
     </div>
     <h1 id="login-heading" class="sr-only" tabindex="-1">เลือกรูปแบบการเข้าสู่ระบบ</h1>
@@ -81,9 +84,6 @@
      </button>
     </div>
     <p id="role-picker-error" class="error" role="alert" hidden></p>
-     <button type="button" class="ghost role-back" id="role-back" aria-label="กลับไปหน้าเข้าสู่ระบบ" title="กลับไปหน้าเข้าสู่ระบบ">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12H4m7-7-7 7 7 7"/></svg>
-     </button>
    </section></main>`;
   document.querySelector('#login-heading')?.focus();
   const employee=document.querySelector('#role-employee'),admin=document.querySelector('#role-admin'),back=document.querySelector('#role-back');
