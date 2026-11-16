@@ -114,11 +114,11 @@
     <button class="primary" type="button" data-nav="queue">ดูคิวอนุมัติ · ${pendingCount()} รายการ</button>
    </section>`:'');
  }
- async function loadDashboard(selected=''){
+ async function loadDashboard(selected='',quiet=false){
   if(!active()||!admin())return;
   const g=generation,previous=dashboard.data;
-  const loading=dashboard={status:'loading',data:previous,round:selected,error:''};
-  emit();
+  const loading=dashboard={status:'loading',data:previous,round:selected,error:'',lastLoad:Date.now()};
+  if(!quiet)emit();
   try{
    const data=await root.GlowLogin.request('/hr/heatmap'+(selected?'?round='+encodeURIComponent(selected):''));
    if(g!==generation||dashboard!==loading||!active())return;
@@ -132,20 +132,28 @@
     throw Error('ข้อมูลแดชบอร์ดไม่ถูกต้อง');
    }
    data.rounds=[...new Set([...(previous?.rounds||[]),...data.rounds])].sort().reverse();
-   dashboard={status:'ready',data,round:data.round,error:''};
+   dashboard={...loading,status:'ready',data,round:data.round};
   }catch(error){
    if(g!==generation||dashboard!==loading||!active())return;
-   dashboard={status:'error',data:previous,round:selected,error:error.message};
+   dashboard={...loading,status:quiet&&previous?'ready':'error',error:error.message};
   }
   emit();
+ }
+ function refreshDashboard(){
+  if(!ready()||state.data.dashboard_available!==true||dashboard.status==='loading')return;
+  if(Date.now()-(dashboard.lastLoad||0)>=60000)void loadDashboard(dashboard.round,dashboard.status==='ready');
+ }
+ function detailButton(label,kind,key='',dimension){
+  const index=dimension===undefined?'':` data-detail-dimension="${dimension}"`;
+  return `<button type="button" class="dashboard-detail-link" data-dashboard-detail="${kind}" data-detail-key="${e(key)}"${index}>${label}</button>`;
  }
  function heatmapView(data){
   const table=data.rows.length?`<div class="heatmap-table-wrap"><table class="heatmap-table">
    <caption class="sr-only">คะแนนเฉลี่ยตามแผนกผู้รับและด้านที่ประเมิน</caption>
    <thead><tr><th scope="col">แผนกผู้รับ</th>${data.dimensions.map(name=>`<th scope="col">${e(name)}</th>`).join('')}</tr></thead>
-   <tbody>${data.rows.map(row=>`<tr><th scope="row">${e(row.department)}</th>${row.means.map(mean=>mean===null
-    ? '<td class="heatmap-empty" aria-label="ยังไม่มีคะแนนที่ใช้คำนวณ">—</td>'
-    : `<td class="heatmap-value heatmap-band-${Math.floor(mean)}">${mean.toFixed(2)}</td>`).join('')}</tr>`).join('')}</tbody>
+   <tbody>${data.rows.map(row=>`<tr><th scope="row">${data.details_available?detailButton(e(row.department),'department',row.department):e(row.department)}</th>${row.means.map((mean,i)=>mean===null
+    ? `<td class="heatmap-empty" aria-label="ยังไม่มีคะแนนที่ใช้คำนวณ">${data.details_available?detailButton('ดูข้อมูล','department',row.department,i):'—'}</td>`
+    : `<td class="heatmap-value heatmap-band-${Math.floor(mean)}">${data.details_available?detailButton(mean.toFixed(2),'department',row.department,i):mean.toFixed(2)}</td>`).join('')}</tr>`).join('')}</tbody>
   </table></div>`:'<p class="muted">ยังไม่มีผลประเมินในรอบนี้</p>';
   return `<section class="card hr-heatmap" aria-labelledby="dashboard-heatmap-title">
    <h2 id="dashboard-heatmap-title">Heatmap</h2><p class="muted">คะแนนเฉลี่ยรายด้านตามแผนกของผู้ถูกประเมิน</p>
@@ -159,14 +167,14 @@
    </div>
   </section>`;
  }
- function rankingView(rows,byPerson){
+ function rankingView(rows,byPerson,details){
   const title=byPerson?'อันดับบุคคล':'อันดับแผนก',id=byPerson?'person-ranking':'department-ranking';
   let rank=0,lastScore=null;
   const body=rows.map((row,i)=>{
    if(row.overall!==lastScore)rank=i+1;
    lastScore=row.overall;
    return `<tr><td class="rank-number">${rank}</td>
-    <th scope="row">${e(byPerson?row.name:row.department)}${byPerson&&row.department?`<small>${e(row.department)}</small>`:''}</th>
+    <th scope="row">${details?detailButton(e(byPerson?row.name:row.department),byPerson?'person':'department',byPerson?row.target:row.department):e(byPerson?row.name:row.department)}${byPerson&&row.department?`<small>${e(row.department)}</small>`:''}</th>
     <td class="rank-score">${row.overall.toFixed(2)}</td><td class="rank-raters">${row.raters.toLocaleString('th-TH')}</td></tr>`;
   }).join('');
   return `<section class="card dashboard-ranking" aria-labelledby="${id}">
@@ -180,22 +188,95 @@
   if(!ready())return setupNotice();
   if(state.data.dashboard_available!==true)return '<section class="card"><p class="muted">เผยแพร่ Worker รุ่น scores-v3 เพื่อเปิดแดชบอร์ด HR</p></section>';
   const data=dashboard.data,selected=dashboard.round||round();
-  const months=[...new Set([round(),...(data?.rounds||[])])].sort(),loading=['idle','loading'].includes(dashboard.status);
+  const months=[...new Set([round(),...(data?.rounds||[])])].sort();
   const summary=dashboard.status==='ready'?`
    <div class="dashboard-counts" role="group" aria-label="จำนวนคนไม่ซ้ำในรอบที่เลือก">
-    <section class="card dashboard-count"><h2>ผู้ส่งการประเมิน</h2><p><strong>${data.counts.raters.toLocaleString('th-TH')}</strong> คน</p></section>
-    <section class="card dashboard-count"><h2>ผู้ถูกประเมิน</h2><p><strong>${data.counts.recipients.toLocaleString('th-TH')}</strong> คน</p></section>
+    <section class="card dashboard-count"><h2>ผู้ส่งการประเมิน</h2><p><strong>${data.counts.raters.toLocaleString('th-TH')}</strong> คน</p>${data.details_available?detailButton('ดูรายการที่ส่ง','raters'):''}</section>
+    <section class="card dashboard-count"><h2>ผู้ถูกประเมิน</h2><p><strong>${data.counts.recipients.toLocaleString('th-TH')}</strong> คน</p>${data.details_available?detailButton('ดูรายชื่อและคะแนน','recipients'):''}</section>
    </div>
    ${heatmapView(data)}
-   <div class="dashboard-rankings">${rankingView(data.rankings.people,true)}${rankingView(data.rankings.departments,false)}</div>`
+   <div class="dashboard-rankings">${rankingView(data.rankings.people,true,data.details_available)}${rankingView(data.rankings.departments,false,data.details_available)}</div>`
    : dashboard.status==='error'?'<p class="error" role="alert">'+e(dashboard.error)+'</p>':'<p class="muted" role="status">กำลังโหลดแดชบอร์ด…</p>';
   return `<div class="hr-dashboard">
    <div class="card dashboard-toolbar">
     <div class="field history-filter" id="dashboard-round">${ui.monthButtons(months,selected,{labelId:'dashboard-round-label',attribute:'data-dashboard-round'})}</div>
-    <button class="secondary" id="refresh-dashboard" type="button" ${loading?'disabled':''}>${dashboard.status==='error'?'ลองอีกครั้ง':'โหลดข้อมูลล่าสุด'}</button>
+    ${data?.details_available?'<button class="secondary" id="export-dashboard" type="button">ดาวน์โหลด Excel</button>':''}
+    ${dashboard.status==='error'?'<button class="secondary" id="refresh-dashboard" type="button">ลองอีกครั้ง</button>':''}
    </div>
    ${summary}
   </div>`;
+ }
+ async function requestReport(scope){
+  const result=await root.GlowLogin.request('/hr/dashboard-details?round='+encodeURIComponent(scope));
+  if(result.scope!==scope||!Array.isArray(result.reports))throw Error('ข้อมูลรายงานไม่ถูกต้อง');
+  return result.reports;
+ }
+ function assessmentDetails(reports,kind,key,dimension){
+  const answers=reports[0]?.submissions||[];
+  const groups=new Map();
+  for(const a of answers){
+   if(kind==='person'&&a.target!==key||kind==='department'&&a.department!==key)continue;
+   const groupKey=kind==='raters'?a.rater:a.target;
+   if(!groups.has(groupKey))groups.set(groupKey,[]);
+   groups.get(groupKey).push(a);
+  }
+  if(!groups.size)return '<p class="muted">ยังไม่มีข้อมูลในรอบนี้</p>';
+  return [...groups.values()].map(entries=>{
+   const {name,department,rater}=entries.at(-1);
+   return `<details class="dashboard-person-detail" ${groups.size===1?'open':''}>
+    <summary>${kind==='raters'?e(rater):e(name)+(department?' · '+e(department):'')} <span class="muted"> · ${entries.length} แบบประเมิน</span></summary>
+    ${entries.map(a=>`<article>
+     <h3>${kind==='raters'?e(a.name)+' · '+e(a.department):e(a.rater)}</h3>
+     <p class="muted">${e(dateLabel(a.created))}${a.context?' · '+e(a.context):''}</p>
+     <ul>${a.answers.filter((_,i)=>dimension===undefined||i===Number(dimension)).map(answer=>`<li>
+       <strong>${e(answer.dimension)} · ${e(answer.score)} / 5</strong> <span class="muted">· ${e(answer.status)}</span>
+       ${answer.reason?`<p>${e(answer.reason)}</p>`:''}${answer.note?`<p>หมายเหตุ HR ${e(answer.note)}</p>`:''}
+      </li>`).join('')}</ul>
+    </article>`).join('')}
+   </details>`;
+  }).join('');
+ }
+ function openDashboardDetails(ui,button){
+  const {dashboardDetail:kind,detailKey:key,detailDimension:dimension}=button.dataset;
+  const selected=dashboard.data.round;
+  const title=kind==='raters'?'ผู้ส่งการประเมิน':kind==='department'?key:'ผู้ถูกประเมิน';
+  const dialog=ui.showDialog(`<h2 id="modal-title">${e(title)}</h2><p class="muted">${e(monthLabel(selected))}</p><div id="dashboard-detail-content" aria-live="polite">กำลังโหลดรายละเอียด…</div>`,null,'dashboard-dialog');
+  const content=dialog.querySelector('#dashboard-detail-content');
+  void requestReport(selected).then(reports=>{
+   if(dialog.open&&active()&&admin())content.innerHTML=assessmentDetails(reports,kind,key,dimension);
+  }).catch(error=>{if(dialog.open)content.textContent=error.message;});
+ }
+ function openDashboardExport(ui){
+  const {round:selected,rounds}=dashboard.data;
+  const months=[...new Set([selected,...rounds])].sort().reverse();
+  ui.showDialog(`<h2 id="modal-title">ดาวน์โหลดรายงาน Excel</h2>
+   <form id="dashboard-export-form"><div class="field"><label for="dashboard-export-round">ข้อมูลที่ต้องการ</label>
+    <select id="dashboard-export-round">
+     ${months.map(month=>`<option value="${month}" ${month===selected?'selected':''}>${e(monthLabel(month))}</option>`).join('')}
+     <option value="all">ทุกรอบเดือน</option>
+    </select></div>
+    <p id="dashboard-export-error" role="alert" class="error" hidden></p>
+    <button class="primary" type="submit">ดาวน์โหลด .xlsx</button>
+   </form>`,dialog=>{
+   const form=dialog.querySelector('#dashboard-export-form'),button=form.querySelector('button'),error=dialog.querySelector('#dashboard-export-error');
+   form.onsubmit=async event=>{
+    event.preventDefault();
+    if(button.disabled)return;
+    const scope=dialog.querySelector('#dashboard-export-round').value;
+    button.disabled=true;error.hidden=true;
+    try{
+     const reports=await requestReport(scope);
+     if(!dialog.open||!active()||!admin())return;
+     const url=URL.createObjectURL(root.CubicExcel.report(reports));
+     const link=document.createElement('a');
+     link.href=url;link.download='CUBIC-CONNECT-HR-'+scope+'.xlsx';
+     document.body.append(link);link.click();link.remove();
+     setTimeout(()=>URL.revokeObjectURL(url),30000);
+     dialog.close();
+    }catch(err){if(dialog.open){error.textContent=err.message;error.hidden=false;}}
+    finally{button.disabled=false;}
+   };
+  },'dashboard-dialog');
  }
  function hrView(page,ui){
   if(page==='hr')return ui.head('แดชบอร์ด HR','ภาพรวมการประเมินในแต่ละรอบ','',false)+dashboardView(ui);
@@ -209,7 +290,20 @@
        <div class="card dashboard-count"><h2>อนุมัติแล้ว</h2><p><strong>${people.approved}</strong> คน</p></div>
       </section><p class="muted">นับตามผู้ถูกประเมินในรอบ ${e(monthLabel(round()))} คนที่ยังมีคะแนนค้างจะอยู่ในกลุ่มรออนุมัติ</p>`
    : ready()?'<p class="muted">อัปเดต Worker เพื่อแสดงจำนวนผู้ถูกประเมินในคิวอนุมัติ</p>':'';
-  return ui.head('อนุมัติคะแนน','คะแนน 1–3 ดาว · เฉพาะ HR','',false)+setupNotice()+progress+(ready()?'<section class="card">'+rows.map(r=>'<article class="review-case"><div class="row"><div><p class="eyebrow">'+e(r.dimension)+'</p><h3>'+e(r.name)+' · '+e(r.department)+'</h3></div><span class="pill rose">'+r.score+' / 5</span></div><p class="muted">'+e(dateLabel(r.created))+'</p><blockquote>'+e(r.reason)+'</blockquote>'+(r.context?'<p class="muted">โปรเจกต์ '+e(r.context)+'</p>':'')+'<p>'+e(r.status)+'</p>'+(r.status==='รอ HR ตรวจสอบ'&&state.data.round_state!=='released'?'<div class="btn-group"><button class="secondary" data-live-review="'+e(r.record_id)+'" data-decision="approved">อนุมัติ</button><button class="danger" data-live-review="'+e(r.record_id)+'" data-decision="rejected">ไม่อนุมัติ</button></div>':r.note?'<p class="muted">'+e(r.note)+'</p>':'')+'</article>').join('')+(!rows.length?'<div class="empty"><h3>ไม่มีคะแนนที่ต้องตรวจสอบ</h3></div>':'')+'</section>':'');
+  const assessments=state.data?.review_assessments??rows.map(({name,department,created,context,...answer})=>({name,department,created,context,answers:[answer]}));
+  const order=['ความถูกต้อง','การสื่อสาร','ความเร็ว'];
+  const queue=assessments.length?`<div class="hr-review-list">${[...assessments].sort((a,b)=>Date.parse(b.created)-Date.parse(a.created)).map(item=>`
+   <article class="card hr-review-card">
+    <header><h2>${e(item.name)}${item.department?` <span class="muted">· ${e(item.department)}</span>`:''}</h2><p>วันที่ประเมิน <time datetime="${e(item.created)}">${e(dateLabel(item.created))}</time></p></header>
+    ${item.context?`<p class="muted">โปรเจกต์ ${e(item.context)}</p>`:''}
+    ${[...item.answers].sort((a,b)=>order.indexOf(a.dimension)-order.indexOf(b.dimension)).map(r=>`
+     <section class="hr-review-answer">
+      <div class="row"><h3>${e(r.dimension)}</h3><span class="pill rose">${r.score} / 5</span></div>
+      ${r.reason?`<blockquote>${e(r.reason)}</blockquote>`:''}<p class="muted">${e(r.status)}</p>
+      ${r.score<=3&&r.status==='รอ HR ตรวจสอบ'&&state.data.round_state!=='released'?`<div class="btn-group"><button type="button" class="secondary" data-live-review="${e(r.record_id)}" data-decision="approved">อนุมัติ</button><button type="button" class="danger" data-live-review="${e(r.record_id)}" data-decision="rejected">ไม่อนุมัติ</button></div>`:r.note?`<p class="muted">หมายเหตุ HR ${e(r.note)}</p>`:''}
+     </section>`).join('')}
+   </article>`).join('')}</div>`:'<section class="card empty"><h3>ไม่มีคะแนนที่ต้องตรวจสอบ</h3></section>';
+  return ui.head('อนุมัติคะแนน','คะแนน 1–3 ดาว · เฉพาะ HR','',false)+setupNotice()+progress+(ready()?queue:'');
  }
  async function openNotifications(ui){
   const g=generation;
@@ -229,6 +323,8 @@
     if(selected!==(dashboard.round||round())||dashboard.status==='error')void loadDashboard(selected);
    });
    document.querySelector('#refresh-dashboard')?.addEventListener('click',()=>void loadDashboard(dashboard.round));
+   document.querySelector('#export-dashboard')?.addEventListener('click',()=>openDashboardExport(ui));
+   document.querySelectorAll('[data-dashboard-detail]').forEach(button=>button.onclick=()=>openDashboardDetails(ui,button));
    if(dashboard.status==='idle')void loadDashboard();
   }
   document.querySelectorAll('[data-score-reload]').forEach(b=>b.onclick=()=>{if(['session_expired','directory_session_missing'].includes(state.code))ui.signOut();else void load();});
@@ -253,5 +349,5 @@
    });
   });
  }
- root.CubicScores={configure:value=>{hooks=value;},start:()=>{reset();return load();},reset,load,ready,round,notice,submit,home,hrView,bind,openNotifications,pendingCount,status:()=>state.status,data:()=>state.data,sending:()=>sending,refreshing:()=>refreshing,history,historyAvailable:()=>Array.isArray(state.data?.history)||confirmedHistory.length>0};
+ root.CubicScores={configure:value=>{hooks=value;},start:()=>{reset();return load();},reset,load,refreshDashboard,ready,round,notice,submit,home,hrView,bind,openNotifications,pendingCount,status:()=>state.status,data:()=>state.data,sending:()=>sending,refreshing:()=>refreshing,history,historyAvailable:()=>Array.isArray(state.data?.history)||confirmedHistory.length>0};
 })(window);

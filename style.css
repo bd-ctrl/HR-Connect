@@ -255,7 +255,7 @@ dialog{border:1px solid #eee2dc;border-radius:25px;background:#fffaf4;color:var(
 .role-picker-brand span {margin-left:4px;color:#ad803e}
 .role-picker-card h1 {margin:22px 0 18px;color:#302b38;font-size:clamp(20px,5.2vw,25px);line-height:1.45}
 .role-picker-actions {
- display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:clamp(12px,4vw,18px);
+ display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:clamp(12px,4vw,18px);margin-top:18px;
 }
 .role-picker-actions .role-option {
  position:relative;display:flex;flex-direction:column;justify-content:center;align-items:center;gap:9px;
@@ -272,7 +272,7 @@ dialog{border:1px solid #eee2dc;border-radius:25px;background:#fffaf4;color:var(
 .role-picker-actions .role-option[data-selected] {
  z-index:1;transform:scale(1.06);border-color:#775ca0;
 }
-.role-picker-card .role-back {display:inline-grid;place-items:center;width:44px;height:44px;margin-left:-10px;padding:0;color:#504167}
+.role-picker-card .role-back {display:grid;place-items:center;width:44px;height:44px;margin:14px auto 0;padding:0;color:#504167}
 .role-option[data-selected]::before,.role-option[data-selected]::after {
  content:"✦" / "";position:absolute;color:#ad803e;pointer-events:none;
  font-size:19px;line-height:1;
@@ -312,6 +312,26 @@ dialog{border:1px solid #eee2dc;border-radius:25px;background:#fffaf4;color:var(
 .dashboard-toolbar .field {flex:1 1 240px;margin:0;min-width:0}
 .dashboard-counts,.dashboard-rankings {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
 .dashboard-count,.dashboard-ranking,.hr-heatmap {min-width:0}
+.dashboard-detail-link {
+ padding:4px 2px;background:none;border:0;color:inherit;font:inherit;
+ text-align:inherit;text-decoration:underline;text-underline-offset:3px;
+}
+.dashboard-detail-link:hover {text-decoration-thickness:2px}
+.dashboard-count .dashboard-detail-link {font-size:13px;color:#654795}
+.heatmap-table td .dashboard-detail-link {width:100%;text-align:center}
+.dashboard-dialog {width:min(720px,calc(100vw - 28px));max-height:85dvh;overflow:auto}
+.dashboard-person-detail {padding:12px 0;border-top:1px solid #e8e1ec}
+.dashboard-person-detail summary {cursor:pointer;font-weight:700}
+.dashboard-person-detail article {padding:10px 0 4px 14px}
+.dashboard-person-detail h3,.dashboard-person-detail li p {margin:4px 0}
+.dashboard-person-detail ul {padding-inline-start:20px}
+.hr-review-list {display:grid;gap:16px;margin-top:16px}
+.hr-review-card header {display:flex;align-items:baseline;justify-content:space-between;gap:8px 16px;flex-wrap:wrap}
+.hr-review-card header h2 {margin:0;font-size:19px}
+.hr-review-card header p {margin:0 0 0 auto;color:#62596b;font-size:13px;text-align:right}
+.hr-review-answer {border-top:1px solid #e8e1ec;margin-top:14px;padding-top:14px}
+.hr-review-answer h3,.hr-review-answer p {margin:4px 0}
+.hr-review-answer blockquote {margin:6px 0}
 .dashboard-count h2 {margin:0;font-size:16px}
 .dashboard-count p {margin:7px 0 0;color:#645674;font-size:14px;line-height:1.3}
 .dashboard-count strong {font-size:clamp(30px,4vw,44px);font-weight:700;font-variant-numeric:tabular-nums;color:#563785}
