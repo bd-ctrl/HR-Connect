@@ -135,6 +135,7 @@ try{
  const q=await api('/hr/state',{token:hr});eq(q.status,200);eq(q.data.reviews.length,1);yes(!JSON.stringify(q.data).includes('CC_รหัสผู้ประเมิน'));
  eq(q.data.approval_note_optional,true);
  eq(q.data.review_assessments.length,1);
+ eq(q.data.review_assessments[0].target,'recB');
  eq(q.data.review_assessments[0].answers.map(a=>a.score),[2,5,4]);
  eq(q.data.review_people,{pending:1,approved:0});
  eq(q.data.dashboard_available,true);

@@ -95,7 +95,6 @@
   return '<section class="card received-feedback"><div class="row"><h2>ฟีดแบ็กที่ได้รับ</h2><span class="pill">'+e(monthLabel(round()))+'</span></div><div class="received-feedback-list">'+visible.map(f=>'<article class="received-feedback-item"><p class="muted">'+e(dateLabel(f.created))+'</p><div class="received-feedback-scores">'+f.answers.map(a=>'<div><span>'+e(a.dimension)+'</span><strong><span aria-hidden="true">★</span> '+a.score+' / 5</strong></div>').join('')+'</div></article>').join('')+'</div></section>';
  }
  function home(ui){
-  if(admin())return hrHome(ui);
   const d=state.data,r=d?.summary,p=d?.previous,usable=state.status==='ready',score=usable?r.overall:null;
   const empty=!usable?'รอแสดงผลประเมิน':r.state==='no_evaluations'?'ยังไม่ได้รับการประเมิน':r.state==='insufficient_data'?'ได้รับการประเมินแล้ว · รอข้อมูลครบเกณฑ์':'รอ HR ตรวจสอบ';
   const detail=!usable?'':r.state==='no_evaluations'?'เมื่อมีผลประเมินที่ผ่านเกณฑ์ คะแนนเฉลี่ยจะแสดงที่นี่':r.state==='insufficient_data'?'คะแนนแต่ละด้านต้องมีผู้ประเมินอย่างน้อย '+(r.minimum_raters||d.policy.minimum_raters)+' คน':'คะแนนที่ผ่านการตรวจสอบและครบเกณฑ์จะนำมาคำนวณ';
@@ -106,13 +105,6 @@
  function pendingCount(){
   return admin()&&state.data?.round_state!=='released'
    ? (state.data?.reviews||[]).filter(r=>r.status==='รอ HR ตรวจสอบ').length : 0;
- }
- function hrHome(ui){
-  return ui.head(greeting(),'รอบประเมิน '+e(monthLabel(round())),'',false)+setupNotice()+(ready()?`
-   <section class="card hr-pending-card">
-    <div><h2>คะแนนรออนุมัติ</h2><p class="muted">คะแนน 1–3 ดาว รอตรวจสอบเป็นรายด้าน</p></div>
-    <button class="primary" type="button" data-nav="queue">ดูคิวอนุมัติ · ${pendingCount()} รายการ</button>
-   </section>`:'');
  }
  async function loadDashboard(selected='',quiet=false){
   if(!active()||!admin())return;
@@ -280,7 +272,6 @@
  }
  function hrView(page,ui){
   if(page==='hr')return ui.head('แดชบอร์ด HR','','',false)+dashboardView(ui);
-  if(page!=='queue')return hrHome(ui);
   const rows=state.data?.reviews||[];
   const people=state.data?.review_people;
   const validCount=n=>Number.isSafeInteger(n)&&n>=0;
@@ -290,19 +281,35 @@
        <div class="card dashboard-count"><h2>อนุมัติแล้ว</h2><p><strong>${people.approved}</strong> คน</p></div>
       </section><p class="muted">นับตามผู้ถูกประเมินในรอบ ${e(monthLabel(round()))} คนที่ยังมีคะแนนค้างจะอยู่ในกลุ่มรออนุมัติ</p>`
    : ready()?'<p class="muted">อัปเดต Worker เพื่อแสดงจำนวนผู้ถูกประเมินในคิวอนุมัติ</p>':'';
-  const assessments=state.data?.review_assessments??rows.map(({name,department,created,context,...answer})=>({name,department,created,context,answers:[answer]}));
+  const assessments=state.data?.review_assessments??rows.map(({target,name,department,created,context,...answer})=>({target,name,department,created,context,answers:[answer]}));
+  const ordered=[...assessments].sort((a,b)=>Date.parse(b.created)-Date.parse(a.created));
+  const byPerson=new Map();
+  for(const item of ordered){
+   const key=item.target||Symbol();
+   if(!byPerson.has(key))byPerson.set(key,[]);
+   byPerson.get(key).push(item);
+  }
   const order=['ความถูกต้อง','การสื่อสาร','ความเร็ว'];
-  const queue=assessments.length?`<div class="hr-review-list">${[...assessments].sort((a,b)=>Date.parse(b.created)-Date.parse(a.created)).map(item=>`
-   <article class="card hr-review-card">
-    <header><h2>${e(item.name)}${item.department?` <span class="muted">· ${e(item.department)}</span>`:''}</h2><p>วันที่ประเมิน <time datetime="${e(item.created)}">${e(dateLabel(item.created))}</time></p></header>
-    ${item.context?`<p class="muted">โปรเจกต์ ${e(item.context)}</p>`:''}
-    ${[...item.answers].sort((a,b)=>order.indexOf(a.dimension)-order.indexOf(b.dimension)).map(r=>`
-     <section class="hr-review-answer">
-      <div class="row"><h3>${e(r.dimension)}</h3><span class="pill rose">${r.score} / 5</span></div>
-      ${r.reason?`<blockquote>${e(r.reason)}</blockquote>`:''}<p class="muted">${e(r.status)}</p>
-      ${r.score<=3&&r.status==='รอ HR ตรวจสอบ'&&state.data.round_state!=='released'?`<div class="btn-group"><button type="button" class="secondary" data-live-review="${e(r.record_id)}" data-decision="approved">อนุมัติ</button><button type="button" class="danger" data-live-review="${e(r.record_id)}" data-decision="rejected">ไม่อนุมัติ</button></div>`:r.note?`<p class="muted">หมายเหตุ HR ${e(r.note)}</p>`:''}
-     </section>`).join('')}
-   </article>`).join('')}</div>`:'<section class="card empty"><h3>ไม่มีคะแนนที่ต้องตรวจสอบ</h3></section>';
+  const queue=byPerson.size?`<div class="hr-review-list">${[...byPerson.values()].map(items=>{
+   const {name,department,created}=items[0],multiple=items.length>1;
+   return `<article class="card hr-review-card">
+    <header><h2>${e(name)}${department?` <span class="muted">· ${e(department)}</span>`:''}</h2><p>${multiple?'วันที่ประเมินล่าสุด':'วันที่ประเมิน'} <time datetime="${e(created)}">${e(dateLabel(created))}</time></p></header>
+    ${!multiple&&items[0].context?`<p class="muted">โปรเจกต์ ${e(items[0].context)}</p>`:''}
+    ${order.map(dimension=>{
+     const entries=items.flatMap(item=>item.answers.filter(r=>r.dimension===dimension).map(r=>({...r,created:item.created,context:item.context})));
+     if(!entries.length)return '';
+     return `<section class="hr-review-answer">
+      <h3>${dimension}</h3>
+      ${entries.map(r=>`<div class="hr-review-entry">
+       <div class="row"><p class="muted">${e(r.status)}</p><span class="pill rose">${r.score} / 5</span></div>
+       ${multiple?`<p class="muted">วันที่ประเมิน <time datetime="${e(r.created)}">${e(dateLabel(r.created))}</time>${r.context?' · โปรเจกต์ '+e(r.context):''}</p>`:''}
+       ${r.reason?`<blockquote>${e(r.reason)}</blockquote>`:''}
+       ${r.score<=3&&r.status==='รอ HR ตรวจสอบ'&&state.data.round_state!=='released'?`<div class="btn-group"><button type="button" class="secondary" data-live-review="${e(r.record_id)}" data-decision="approved">อนุมัติ</button><button type="button" class="danger" data-live-review="${e(r.record_id)}" data-decision="rejected">ไม่อนุมัติ</button></div>`:r.note?`<p class="muted">หมายเหตุ HR ${e(r.note)}</p>`:''}
+      </div>`).join('')}
+     </section>`;
+    }).join('')}
+   </article>`;
+  }).join('')}</div>`:'<section class="card empty"><h3>ไม่มีคะแนนที่ต้องตรวจสอบ</h3></section>';
   return ui.head('อนุมัติคะแนน','คะแนน 1–3 ดาว · เฉพาะ HR','',false)+setupNotice()+progress+(ready()?queue:'');
  }
  async function openNotifications(ui){
