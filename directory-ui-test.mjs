@@ -23,6 +23,12 @@ function fixture(mode = 'success', accountDrafts = new Map()) {
     {target:'rec-project',name:'ผู้ร่วมงานสมมติ Project',department:'Project Co',round:'2025-10',created:'2025-10-29T08:00:00Z',context:'',answers:['ความเร็ว','ความถูกต้อง','การสื่อสาร'].map(dimension=>({dimension,score:4,reason:''}))}
   ];
   const isHR=mode.startsWith('hr-');
+  const reviewAnswers=[
+    {record_id:'rec-review',dimension:'ความเร็ว',score:2,reason:'เหตุผลจำลอง',status:'รอ HR ตรวจสอบ'},
+    {record_id:'rec-review2',dimension:'ความถูกต้อง',score:5,reason:'',status:'ผ่านอัตโนมัติ'},
+    {record_id:'rec-review3',dimension:'การสื่อสาร',score:4,reason:'',status:'ผ่านอัตโนมัติ'}
+  ];
+  const reviewPerson={name:'ผู้รับตัวอย่าง',department:'BA',created:'2026-11-01T12:00:00Z',context:''};
   const feedbackSize={'instant-feedback':1,'two-feedback':2,'three-feedback':3}[mode]||0;
   const feedback=Array.from({length:feedbackSize},(_,i)=>({
     round:'2026-10',created:`2026-10-${27+i}T08:00:00Z`,
@@ -61,7 +67,7 @@ function fixture(mode = 'success', accountDrafts = new Map()) {
         ok:true,employee:{id:'rec-self',nickname:isHR?'ADMIN':mode==='nickname-escape'?'<img src=x onerror="bad()">':'ผู้ทดสอบ',department:isHR?'HR':'BA',role:isHR?'admin':'employee'},
         ...(mode==='no-session'?{}:{session_token:'test-session-token',expires_in:900})
       });
-      if(url.endsWith('/hr/state'))return Response.json({ok:true,round:'2026-10',policy:{version:'test',minimum_raters:3},reviews:mode==='hr-pending'?[{record_id:'rec-review',score:2,reason:'เหตุผลจำลอง',status:'รอ HR ตรวจสอบ'}]:[],storage_private:true,dashboard_available:mode==='hr-dashboard',score_table_id:'tblScores',setup_required:mode==='hr-wrong-type'||!setupPrepared||mode==='hr-setup-stale',missing:setupPrepared&&mode!=='hr-setup-stale'?[]:['CC_รหัสผู้รับ'],invalid_fields:mode==='hr-wrong-type'?['คะแนนดาว']:[]});
+      if(url.endsWith('/hr/state'))return Response.json({ok:true,round:'2026-10',policy:{version:'test',minimum_raters:3},reviews:mode==='hr-pending'?[{...reviewPerson,...reviewAnswers[0]}]:[],review_assessments:mode==='hr-pending'?[{...reviewPerson,answers:reviewAnswers}]:[],storage_private:true,dashboard_available:mode==='hr-dashboard',score_table_id:'tblScores',setup_required:mode==='hr-wrong-type'||!setupPrepared||mode==='hr-setup-stale',missing:setupPrepared&&mode!=='hr-setup-stale'?[]:['CC_รหัสผู้รับ'],invalid_fields:mode==='hr-wrong-type'?['คะแนนดาว']:[]});
       if(new URL(url).pathname==='/hr/heatmap'){
         const round=new URL(url).searchParams.get('round')||'2026-10',current=round==='2026-10';
         return Response.json({
@@ -388,6 +394,10 @@ ok(hrDashboard.run("page==='hr'&&notificationHtml.includes('ยังไม่�
 const hrPending=fixture('hr-pending');await hrPending.login();await tick();
 hrPending.run("$('#notifications').handlers.click()");
 ok(hrPending.run("page==='queue'"));
+const queueHtml=hrPending.q('#app').innerHTML;
+ok((queueHtml.match(/ผู้รับตัวอย่าง/g)||[]).length===1&&queueHtml.includes('วันที่ประเมิน'));
+ok(queueHtml.indexOf('ความถูกต้อง')<queueHtml.indexOf('การสื่อสาร')&&queueHtml.indexOf('การสื่อสาร')<queueHtml.indexOf('ความเร็ว'));
+ok((queueHtml.match(/data-decision="approved"/g)||[]).length===1);
 ok(hrDashboard.calls.some(c=>c.url.endsWith('/hr/heatmap?round=2025-10')));
 ok(hrDashboard.q('#app').innerHTML.includes('ผู้ส่งการประเมิน</h2><p><strong>0</strong>')&&!hrDashboard.q('#app').innerHTML.includes('ชื่อทดสอบ'));
 const legacyDashboard=fixture('hr-legacy');await legacyDashboard.login();await tick();legacyDashboard.run("go('hr')");await tick();
@@ -397,6 +407,7 @@ const rolePicker=fixture('dual-role');
 await rolePicker.login();
 ok(!rolePicker.run('GlowLogin.active()')&&rolePicker.q('#app').innerHTML.includes('เลือกรูปแบบการเข้าสู่ระบบ'));
 ok(!rolePicker.q('#app').innerHTML.includes('0000911111111'));
+ok(rolePicker.q('#app').innerHTML.includes('id="login-heading" class="sr-only"')&&rolePicker.q('#app').innerHTML.indexOf('id="role-back"')>rolePicker.q('#app').innerHTML.indexOf('id="role-admin"'));
 rolePicker.q('#role-employee').onclick();
 await tick();
 ok(rolePicker.run('GlowLogin.profile().role')==='employee'&&rolePicker.calls.some(call=>call.url.endsWith('/me/state')));

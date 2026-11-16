@@ -116,7 +116,7 @@ try{
  eq(firstDashboard.counts,{raters:1,recipients:1});
  eq(firstDashboard.rows,[{department:'HR',means:[4,5,4]}]);
  eq(firstDashboard.rankings,{
-  people:[{name:'ทดสอบB',department:'HR',overall:4.33,raters:1}],
+  people:[{target:'recB',name:'ทดสอบB',department:'HR',overall:4.33,raters:1}],
   departments:[{department:'HR',overall:4.33,raters:1}]
  });
  eq((await api('/me/state?target=recA',{token:b})).status,400);eq((await api('/me/state',{token:a})).data.history.length,1);eq((await api('/me/state',{token:b})).data.history.length,0);
@@ -134,6 +134,8 @@ try{
  const serialized=JSON.stringify(pending.data);yes(!serialized.includes('สถานการณ์สมมติ')&&!serialized.includes('recA')&&!serialized.includes('rater_id'));
  const q=await api('/hr/state',{token:hr});eq(q.status,200);eq(q.data.reviews.length,1);yes(!JSON.stringify(q.data).includes('CC_รหัสผู้ประเมิน'));
  eq(q.data.approval_note_optional,true);
+ eq(q.data.review_assessments.length,1);
+ eq(q.data.review_assessments[0].answers.map(a=>a.score),[2,5,4]);
  eq(q.data.review_people,{pending:1,approved:0});
  eq(q.data.dashboard_available,true);
  eq((await api('/hr/heatmap',{token:a})).status,403);
@@ -141,7 +143,7 @@ try{
  const pendingHeatmap=(await api('/hr/heatmap',{token:hr})).data;
  eq(pendingHeatmap.rows,[{department:'HR',means:[4,5,4]}]);
  eq(pendingHeatmap.counts,{raters:3,recipients:1});
- yes([records[0].fields[F.rater],payload.context,'สถานการณ์สมมติ','recB','record_id'].every(value=>!JSON.stringify(pendingHeatmap).includes(value)));
+ yes([records[0].fields[F.rater],payload.context,'สถานการณ์สมมติ','record_id'].every(value=>!JSON.stringify(pendingHeatmap).includes(value)));
  const low=q.data.reviews[0].record_id;
  eq((await api('/hr/reviews/'+low,{token:hr,body:{decision:'approved',note:'ห้ามแก้รอบปิด'},settings:{...env,ROUND_STATE:'released'}})).status,409);
  eq((await api('/hr/reviews/'+low,{token:a,body:{decision:'approved',note:'ผลทดสอบ'}})).status,403);
@@ -189,10 +191,22 @@ try{
  eq(historical.counts,{raters:1,recipients:1});eq(historical.rows,[{department:'HR',means:[4,5,4]}]);
  eq((await api('/hr/heatmap',{token:hr})).data.rounds,['2026-10',historicalRound]);
  eq((await api('/me/state',{token:b})).data.feedback.filter(row=>row.round===historicalRound),[]);
+ eq((await api('/hr/dashboard-details?round=all',{token:a})).status,403);
+ eq((await api('/hr/dashboard-details?round=2026-13',{token:hr})).status,400);
+ const report=(await api('/hr/dashboard-details?round=2026-10',{token:hr})).data;
+ eq(report.reports.map(r=>r.round),['2026-10']);
+ eq(report.reports[0].counts,multiple.counts);
+ eq(report.reports[0].people.find(p=>p.target==='recB').name,'ทดสอบB');
+ eq(report.reports[0].submissions.find(s=>s.answers.some(a=>a.status==='ไม่อนุมัติ')).answers[0].note,'ไม่ใช้คะแนนด้านนี้ในการคำนวณ');
+ yes(report.reports[0].submissions.every(s=>/^ผู้ประเมิน [0-9]+$/.test(s.rater)));
+ yes(!JSON.stringify(report).includes(records[0].fields[F.rater]));
+ eq((await api('/hr/dashboard-details?round=all',{token:hr})).data.reports.map(r=>r.round),['2026-10',historicalRound]);
+ eq((await api('/hr/dashboard-details?round=2026-11',{token:hr})).data.reports[0].submissions,[]);
+
 
  const dup=structuredClone(records[0]);dup.record_id='recDuplicate';records.push(dup);eq((await api('/me/state',{token:b})).data.summary.received,3);eq((await api('/me/state',{token:b})).data.feedback.length,3);
  employees[0].fields.สถานะการเป็นพนักงาน='พ้นสภาพ';eq((await api('/me/state',{token:a})).status,403);employees[0].fields.สถานะการเป็นพนักงาน='พนักงาน';
- eq((await api('/me/state',{token:a.slice(0,-2)+'zz'})).status,401);
+ eq((await api('/me/state',{token:a.slice(0,a.indexOf('.')+1)+(a[a.indexOf('.')+1]==='A'?'B':'A')+a.slice(a.indexOf('.')+2)})).status,401);
  const rowsBeforeSetup=structuredClone(records);
  fields.delete(F.target);eq((await api('/me/state',{token:b})).status,503);
  const diagnostics=(await api('/hr/state',{token:hr})).data;

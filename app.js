@@ -405,7 +405,7 @@ function bind(){
 }
 GlowLogin.onExpired(reason=>signOut(reason));
 Scores.configure({render:()=>{if(form&&stage==='edit')collect();if(GlowLogin.active())render();},data:data=>{if(data.round_state)db.round=data.round_state;}});
-const refreshScoresWhenVisible=()=>{if(!GlowLogin.active()||document.visibilityState!=='visible'||!GlowLogin.checkSession())return;if(page!=='rate'&&!Scores.sending()&&!Scores.refreshing())void Scores.load({quiet:true});};
+const refreshScoresWhenVisible=()=>{if(!GlowLogin.active()||document.visibilityState!=='visible'||!GlowLogin.checkSession())return;if(page!=='rate'&&!Scores.sending()&&!Scores.refreshing())void Scores.load({quiet:true});if(role==='hr'&&page==='hr')Scores.refreshDashboard();};
 document.addEventListener('visibilitychange',refreshScoresWhenVisible);
 window.addEventListener?.('focus',refreshScoresWhenVisible);
 if(typeof setInterval==='function')setInterval(refreshScoresWhenVisible,15000);

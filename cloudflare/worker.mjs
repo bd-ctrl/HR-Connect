@@ -576,15 +576,19 @@ async function hrState(request,env,cfg) {
   validateSchema(map);
   const all=await groups(await scoreRows(env,[{field_name:sf('round'),operator:'is',value:[sc.round]}]));
   const pendingPeople=new Set(),approvedPeople=new Set();
-  const reviews=all.flatMap(a=>a.rows.flatMap((r,i)=>{
-    if (a.scores[i]>3) return [];
-    const status=textValue(r.fields?.[sf('status')]);
-    if (status===REVIEW.pending) pendingPeople.add(a.target);
-    if (status===REVIEW.approved) approvedPeople.add(a.target);
-    return [{record_id:r.record_id,name:a.name,department:a.department,dimension:DIMENSIONS[i],score:a.scores[i],reason:a.reasons[i],context:a.context,created:a.created,status,note:textValue(r.fields?.[sf('note')])}];
-  }));
+  const review_assessments=all.filter(a=>a.scores.some(score=>score<=3)).map(a=>{
+    const {name,department,context,created}=a;
+    const answers=a.rows.map((r,i)=>{
+      const status=textValue(r.fields?.[sf('status')]);
+      if(a.scores[i]<=3&&status===REVIEW.pending)pendingPeople.add(a.target);
+      if(a.scores[i]<=3&&status===REVIEW.approved)approvedPeople.add(a.target);
+      return {record_id:r.record_id,dimension:DIMENSIONS[i],score:a.scores[i],reason:a.reasons[i],status,note:textValue(r.fields?.[sf('note')])};
+    });
+    return {name,department,context,created,answers};
+  });
+  const reviews=review_assessments.flatMap(({answers,...assessment})=>answers.filter(a=>a.score<=3).map(a=>({...assessment,...a})));
   for (const target of pendingPeople) approvedPeople.delete(target);
-  return {...state,reviews,review_people:{pending:pendingPeople.size,approved:approvedPeople.size}};
+  return {...state,reviews,review_assessments,review_people:{pending:pendingPeople.size,approved:approvedPeople.size}};
 }
 
 function dashboardScores(assessments) {
@@ -607,15 +611,16 @@ function dashboardScores(assessments) {
   return {means:means.map(rounded), overall:rounded(overall), raters:contributors.size};
 }
 
-async function hrDashboard(request, env, cfg, round) {
+async function hrDashboardAssessments(request, env, cfg, round) {
   await actor(request, env, cfg, true);
   const sc = scoreConfig(env);
   requirePrivate(sc);
   validateSchema(await schema(env));
   const all = await groups(await scoreRows(env, round ? [{field_name:sf('round'),operator:'is',value:[round]}] : []));
-  const rounds = [...new Set([sc.round, ...all.map(a => a.round)])].sort().reverse();
-  round ||= sc.round;
-  const assessments = all.filter(a=>a.round===round);
+  return {current:sc.round,all};
+}
+
+function dashboardSummary(assessments) {
   const departments = new Map(), people = new Map();
   const add = (map, key, a) => {
     if (!map.has(key)) map.set(key, []);
@@ -628,19 +633,53 @@ async function hrDashboard(request, env, cfg, round) {
   const departmentScores = [...departments].sort(([a],[b])=>a.localeCompare(b,'th')).map(([department, entries])=>({
     department, ...dashboardScores(entries)
   }));
-  const personScores = [...people.values()].map(entries=>{
+  const personScores = [...people].map(([target,entries])=>{
     const {name, department} = entries.at(-1);
-    return {name, department, ...dashboardScores(entries)};
+    return {target, name, department, ...dashboardScores(entries)};
   });
   const rank = (scores, label) => scores.filter(entry=>entry.overall!==null)
     .sort((a,b)=>b.overall-a.overall||a[label].localeCompare(b[label],'th'))
     .map(({means,...entry})=>entry);
   return {
-    ok:true, round, rounds, dimensions:DIMENSIONS,
     counts:{raters:new Set(assessments.map(a=>a.rater)).size, recipients:people.size},
     rows:departmentScores.map(({department, means})=>({department, means})),
-    rankings:{people:rank(personScores,'name'), departments:rank(departmentScores,'department')}
+    rankings:{people:rank(personScores,'name'), departments:rank(departmentScores,'department')},
+    people:personScores, departments:departmentScores
   };
+}
+
+async function hrDashboard(request, env, cfg, round) {
+  const {current,all}=await hrDashboardAssessments(request,env,cfg,round);
+  const rounds=[...new Set([current,...all.map(a=>a.round)])].sort().reverse();
+  round ||= current;
+  const {counts,rows,rankings}=dashboardSummary(all.filter(a=>a.round===round));
+  return {ok:true,round,rounds,dimensions:DIMENSIONS,counts,rows,rankings,details_available:true};
+}
+
+async function hrDashboardDetails(request, env, cfg, scope) {
+  const {all}=await hrDashboardAssessments(request,env,cfg,scope==='all'?null:scope);
+  const byRound=new Map();
+  for(const assessment of all){
+    if(scope!=='all'&&assessment.round!==scope)continue;
+    if(!byRound.has(assessment.round))byRound.set(assessment.round,[]);
+    byRound.get(assessment.round).push(assessment);
+  }
+  if(scope!=='all'&&!byRound.has(scope))byRound.set(scope,[]);
+  return {ok:true,scope,reports:[...byRound].sort(([a],[b])=>b.localeCompare(a)).map(([round,assessments])=>{
+    const {counts,people,departments}=dashboardSummary(assessments);
+    const aliases=new Map([...new Set(assessments.map(a=>a.rater))].map((key,i)=>[key,'ผู้ประเมิน '+String(i+1).padStart(3,'0')]));
+    const submissions=assessments.map(({id,target,rater,name,department,created,context,scores,reasons,rows})=>({
+      id,target,rater:aliases.get(rater),name,department,created,context,
+      answers:rows.map((row,i)=>{
+        const f=row.fields||{};
+        const reviewed=textValue(f[sf('reviewedAt')]),timestamp=/^\d+$/.test(reviewed)?Number(reviewed):Date.parse(reviewed);
+        const date=new Date(timestamp);
+        return {dimension:DIMENSIONS[i],score:scores[i],reason:reasons[i],status:textValue(f[sf('status')]),
+          note:textValue(f[sf('note')]),reviewedAt:Number.isFinite(date.getTime())?date.toISOString():null};
+      })
+    }));
+    return {round,counts,people,departments,submissions};
+  })};
 }
 
 async function reviewScore(request,env,cfg,id) {
@@ -685,16 +724,18 @@ export default {
     if (origin&&origin!==(env.ALLOWED_ORIGIN||'https://bd-ctrl.github.io')) return reply(request,env,{ok:false,error:'origin_not_allowed',message:'ไม่อนุญาตให้เรียกจากเว็บไซต์นี้'},403);
     if (request.method==='OPTIONS') return reply(request,env,null,204);
     try {
-      if (['/','/health'].includes(url.pathname)&&request.method==='GET') return reply(request,env,{ok:true,service:'CUBIC CONNECT API',version:'scores-v3',capabilities:['employees','assessments','results','hr-review','feedback-threshold','sent-history-receipt','sent-history-details','role-selection','hr-heatmap','hr-dashboard','approval-note-optional','hr-review-person-counts',...(env.DRAFTS_DB?['account-drafts']:[])]});
-      const methods={'/login':'POST','/employees':'GET','/me/state':'GET','/hr/state':'GET','/hr/heatmap':'GET','/hr/setup':'POST','/assessments':'POST'};
+      if (['/','/health'].includes(url.pathname)&&request.method==='GET') return reply(request,env,{ok:true,service:'CUBIC CONNECT API',version:'scores-v3',capabilities:['employees','assessments','results','hr-review','feedback-threshold','sent-history-receipt','sent-history-details','role-selection','hr-heatmap','hr-dashboard','approval-note-optional','hr-review-person-counts','hr-dashboard-details','hr-excel-export','hr-review-assessments',...(env.DRAFTS_DB?['account-drafts']:[])]});
+      const methods={'/login':'POST','/employees':'GET','/me/state':'GET','/hr/state':'GET','/hr/heatmap':'GET','/hr/dashboard-details':'GET','/hr/setup':'POST','/assessments':'POST'};
       const review=url.pathname.match(/^\/hr\/reviews\/([\w-]{3,100})$/);
       const draft=url.pathname.match(/^\/me\/drafts\/([\w-]{3,100})$/);
       const method=review?'POST':draft&&request.method==='POST'?'POST':draft?'GET':methods[url.pathname];
       if (!method) throw new APIError(404,'not_found','ไม่พบ API นี้');
       if (request.method!==method) throw new APIError(405,'method_not_allowed','วิธีเรียก API ไม่ถูกต้อง');
       const heatmap = url.pathname === '/hr/heatmap';
-      const round = heatmap ? url.searchParams.get('round') : null;
-      if (url.search && (!heatmap || [...url.searchParams].length !== 1 || !ROUND_PATTERN.test(round || ''))) {
+      const details = url.pathname === '/hr/dashboard-details';
+      const round = heatmap || details ? url.searchParams.get('round') : null;
+      if ((url.search || details) && ((!heatmap && !details) || [...url.searchParams].length !== 1 ||
+        !(ROUND_PATTERN.test(round || '') || (details && round==='all')))) {
         throw new APIError(400,'unexpected_query','รอบประเมินไม่ถูกต้อง');
       }
       const cfg=config(env);let body;
@@ -703,6 +744,7 @@ export default {
       else if (url.pathname==='/me/state') body=await employeeState(request,env,cfg);
       else if (url.pathname==='/hr/state') body=await hrState(request,env,cfg);
       else if (heatmap) body=await hrDashboard(request,env,cfg,round);
+      else if (details) body=await hrDashboardDetails(request,env,cfg,round);
       else if (url.pathname==='/hr/setup') body=await setupScores(request,env,cfg);
       else if (url.pathname==='/assessments') body=await submitAssessment(request,env,cfg);
       else if (draft) body=await assessmentDraft(request,env,cfg,draft[1]);
